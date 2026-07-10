@@ -14,14 +14,41 @@ BACKEND_FLAGS = -backend-config="bucket=$(STATE_BUCKET)" \
                 -backend-config="region=$(REGION)" \
                 -backend-config="use_lockfile=true"
 
-.PHONY: fmt validate plan-bootstrap bootstrap destroy-bootstrap
+HELLO = examples/hello
+
+HELLO_BACKEND_FLAGS = -backend-config="bucket=$(STATE_BUCKET)" \
+                      -backend-config="key=apps/hello/terraform.tfstate" \
+                      -backend-config="region=$(REGION)" \
+                      -backend-config="use_lockfile=true"
+
+.PHONY: fmt validate plan-bootstrap bootstrap destroy-bootstrap \
+        plan-hello deploy-hello destroy-hello
 
 fmt:
 	$(TF) -chdir=$(BOOTSTRAP) fmt -recursive
+	$(TF) fmt -recursive modules examples
 
 validate:
 	$(TF) -chdir=$(BOOTSTRAP) init -input=false -backend=false > /dev/null
 	$(TF) -chdir=$(BOOTSTRAP) validate
+	$(TF) -chdir=modules/fargate-service init -input=false -backend=false > /dev/null
+	$(TF) -chdir=modules/fargate-service validate
+	$(TF) -chdir=$(HELLO) init -input=false -backend=false > /dev/null
+	$(TF) -chdir=$(HELLO) validate
+
+# --- Stage 1 worked example -------------------------------------------------
+
+plan-hello:
+	$(TF) -chdir=$(HELLO) init -input=false $(HELLO_BACKEND_FLAGS)
+	$(TF) -chdir=$(HELLO) plan -var "state_bucket=$(STATE_BUCKET)"
+
+deploy-hello:
+	$(TF) -chdir=$(HELLO) init -input=false $(HELLO_BACKEND_FLAGS)
+	$(TF) -chdir=$(HELLO) apply -var "state_bucket=$(STATE_BUCKET)"
+
+destroy-hello:
+	$(TF) -chdir=$(HELLO) init -input=false $(HELLO_BACKEND_FLAGS)
+	$(TF) -chdir=$(HELLO) destroy -var "state_bucket=$(STATE_BUCKET)"
 
 # On the very first run the state bucket doesn't exist yet, and terraform
 # refuses to plan/apply with an uninitialized backend block — so the block is

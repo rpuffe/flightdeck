@@ -1,0 +1,239 @@
+# flightdeck-service: one Fargate service behind the shared ALB, driven by
+# app-manifest.yaml values (spec §5, §6). Net-new resources only — this
+# module never creates Route53 records (the wildcard alias + host-based
+# listener rules already route traffic) or ECR repos (bootstrap owns those).
+
+data "aws_region" "current" {}
+
+# ---------------------------------------------------------------------------
+# Logs
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_log_group" "app" {
+  name              = "flightdeck/${var.name}"
+  retention_in_days = 30
+}
+
+# ---------------------------------------------------------------------------
+# IAM
+# ---------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "ecs_tasks_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "exec" {
+  name               = "flightdeck-${var.name}-exec"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "exec" {
+  role       = aws_iam_role.exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Deliberately no permissions attached: v1 apps get no AWS API access at
+# all (least privilege). Revisit once the manifest grows secrets/database
+# blocks (spec §11 roadmap) that need scoped IAM.
+resource "aws_iam_role" "task" {
+  name               = "flightdeck-${var.name}-task"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+}
+
+# ---------------------------------------------------------------------------
+# Task definition
+# ---------------------------------------------------------------------------
+
+resource "aws_ecs_task_definition" "app" {
+  family                   = "flightdeck-${var.name}"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = var.cpu
+  memory                   = var.memory
+  execution_role_arn       = aws_iam_role.exec.arn
+  task_role_arn            = aws_iam_role.task.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "app"
+      image     = var.image
+      essential = true
+
+      portMappings = [
+        {
+          containerPort = var.port
+          protocol      = "tcp"
+        }
+      ]
+
+      # Sorted for plan stability: map iteration order isn't guaranteed,
+      # a list built straight from var.env would show spurious diffs.
+      environment = [
+        for k in sort(keys(var.env)) : {
+          name  = k
+          value = var.env[k]
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.app.name
+          "awslogs-region"        = data.aws_region.current.region
+          "awslogs-stream-prefix" = var.name
+        }
+      }
+    }
+  ])
+}
+
+# ---------------------------------------------------------------------------
+# Service security group
+# ---------------------------------------------------------------------------
+
+resource "aws_security_group" "service" {
+  name        = "flightdeck-${var.name}"
+  description = "flightdeck ${var.name}: ALB-only ingress on ${var.port}, anywhere out"
+  vpc_id      = var.vpc_id
+}
+
+resource "aws_vpc_security_group_ingress_rule" "service" {
+  security_group_id            = aws_security_group.service.id
+  description                  = "From the shared ALB only"
+  referenced_security_group_id = var.alb_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = var.port
+  to_port                      = var.port
+}
+
+resource "aws_vpc_security_group_egress_rule" "service" {
+  security_group_id = aws_security_group.service.id
+  description       = "All outbound"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}
+
+# ---------------------------------------------------------------------------
+# Target group + listener rule
+# ---------------------------------------------------------------------------
+
+resource "aws_lb_target_group" "app" {
+  name        = "flightdeck-${var.name}"
+  port        = var.port
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = var.vpc_id
+
+  health_check {
+    path                = var.healthcheck_path
+    matcher             = "200"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  # Short on purpose: this is a demo platform, not a high-traffic prod
+  # service, so fast redeploy/teardown wins over connection draining.
+  deregistration_delay = 30
+}
+
+resource "aws_lb_listener_rule" "app" {
+  listener_arn = var.https_listener_arn
+
+  # Priority omitted: AWS auto-assigns the next free slot, so independently
+  # deployed app stacks never need to coordinate priorities with each other.
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+
+  condition {
+    host_header {
+      values = ["${var.name}.${var.child_zone_name}"]
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# ECS service
+# ---------------------------------------------------------------------------
+
+resource "aws_ecs_service" "app" {
+  name            = var.name
+  cluster         = var.cluster_arn
+  task_definition = aws_ecs_task_definition.app.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = var.private_subnet_ids
+    security_groups  = [aws_security_group.service.id]
+    assign_public_ip = false
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.app.arn
+    container_name   = "app"
+    container_port   = var.port
+  }
+
+  # Manifest contract: healthy within 30s of start (spec §6).
+  health_check_grace_period_seconds = 30
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # A target group must be attached to a listener before a service can
+  # register targets against it.
+  depends_on = [aws_lb_listener_rule.app]
+}
+
+# ---------------------------------------------------------------------------
+# Alarms (v1 has no SNS topic, so these have no actions — visibility only)
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+  alarm_name          = "flightdeck-${var.name}-cpu-high"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 300
+  statistic           = "Average"
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ClusterName = element(split("/", var.cluster_arn), 1)
+    ServiceName = aws_ecs_service.app.name
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
+  alarm_name          = "flightdeck-${var.name}-unhealthy-hosts"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "UnHealthyHostCount"
+  namespace           = "AWS/ApplicationELB"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    # No standalone ALB ARN input exists; the load balancer's ARN suffix
+    # (app/<lb-name>/<lb-id>) is embedded in the listener ARN we already have.
+    LoadBalancer = join("/", slice(split("/", var.https_listener_arn), 1, 4))
+    TargetGroup  = aws_lb_target_group.app.arn_suffix
+  }
+}

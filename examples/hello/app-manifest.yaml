@@ -1,0 +1,8 @@
+# The flightdeck manifest contract (draft — finalized by what Stage 1 needs).
+# Every field here exists because the manual deploy required it. No extras.
+name: hello        # dns-safe; becomes service/log/target-group names and the URL host
+port: 80           # container port the app listens on
+healthcheck: /     # must return 200 within 30s of start
+cpu: 256           # fargate cpu units
+memory: 512        # MiB
+env: {}            # non-secret config only
