@@ -90,8 +90,8 @@ repo: flightdeck (github.com/rpuffe/flightdeck, public)
 │       ├── CloudWatch logs + basic alarms
 │       └── IAM task role (least privilege)
 ├── .github/workflows/    # reusable workflows apps inherit
-│   ├── build-scan-push.yml   (docker build, Trivy scan, push to ECR)
-│   ├── terraform-plan-apply.yml  (fmt, validate, tfsec/checkov, plan, apply)
+│   ├── build-scan-push.yml   (docker build, Trivy image scan, push to ECR)
+│   ├── terraform-plan-apply.yml  (fmt, validate, Trivy IaC scan, plan, apply)
 │   └── deploy.yml            (calls the above; triggered on merge to main)
 ├── template-app/         # GitHub template repo contents
 │   ├── app-manifest.yaml
@@ -140,22 +140,26 @@ Runs in Robert's existing personal AWS account (us-east-1), so:
    NS delegation record for fd.robertpuffe.com. Existing records (apex, www,
    ACM validation CNAMEs) are untouchable.
 
-## 6. The manifest contract (draft — finalize from what W1 actually requires)
+## 6. The manifest contract (FINAL v1 — derived from the Stage 1 manual deploy)
 
 ```yaml
 # app-manifest.yaml
-name: my-app            # dns-safe, becomes service/repo/log names
+name: my-app            # dns-safe, becomes service/log/target-group names + URL host
 port: 8080
 healthcheck: /healthz   # must return 200 within 30s of start
 cpu: 256                # fargate units
 memory: 512
 env:                    # non-secret config only
   LOG_LEVEL: info
-secrets: []             # SSM parameter names, injected at runtime (stretch)
 ```
 
 **Rule:** every field must be justified by a real need discovered during manual
 deployment in W1. No speculative fields.
+
+Outcomes of applying the rule: the draft's `secrets: []` field was never
+needed and is gone (SSM injection lives in §11 v2); `image` is deliberately
+NOT a manifest field — CI computes it per build, apps never pin their own
+image reference.
 
 ## 7. CONVENTIONS.md (agent contract) — contents
 
@@ -170,20 +174,20 @@ deployment in W1. No speculative fields.
 ## 8. Work breakdown
 
 ### Stage 0 — Repo + bootstrap (Weekend 1, Saturday)
-- [ ] Create `flightdeck` repo (public)
-- [ ] `bootstrap/`: state backend, OIDC, ECR, VPC, DNS child zone + wildcard
+- [x] Create `flightdeck` repo (public)
+- [x] `bootstrap/`: state backend, OIDC, ECR, VPC, DNS child zone + wildcard
       ACM cert, budget alarm
-- [ ] `make bootstrap` / `make destroy-bootstrap` work cleanly (destroy must
+- [x] `make bootstrap` / `make destroy-bootstrap` work cleanly (destroy must
       respect §5b safeguards — parent zone survives untouched)
-- [ ] **Exit criteria:** clean account region → bootstrapped in one command
+- [x] **Exit criteria:** clean account region → bootstrapped in one command
 
 ### Stage 1 — Manual golden path (Weekend 1, Sunday)
-- [ ] Write `modules/fargate-service`
-- [ ] Deploy a public sample container (e.g. nginxdemos/hello) via manual
+- [x] Write `modules/fargate-service`
+- [x] Deploy a public sample container (e.g. nginxdemos/hello) via manual
       `terraform apply`
-- [ ] Write down every fact about the app you needed → that list becomes the
+- [x] Write down every fact about the app you needed → that list becomes the
       final manifest schema
-- [ ] **Exit criteria:** sample container serving traffic at
+- [x] **Exit criteria:** sample container serving traffic at
       https://hello.fd.robertpuffe.com
 
 ### Stage 2 — CI + contract (Weekend 2, Saturday)
@@ -231,8 +235,10 @@ Name = flightdeck.
 - TLS/DNS = child zone fd.robertpuffe.com + wildcard ACM; apps get
   `https://<name>.fd.robertpuffe.com`. Host-based ALB routing on one shared ALB.
 - Region = us-east-1. Account = existing personal (safeguards in §5b).
-- Scan gates fail on HIGH/CRITICAL only (Trivy and checkov), documented as a
-  deliberate threshold.
+- Scan gates fail on HIGH/CRITICAL only, documented as a deliberate threshold.
+  Scanner = Trivy for BOTH image and IaC (decided W2: tfsec merged into Trivy
+  upstream, and open-source checkov cannot filter by severity, which the
+  HIGH/CRITICAL-only gate requires — one scanner, working thresholds).
 - Tracking = GitHub Issues + one Milestone per Stage on rpuffe/flightdeck.
 - Stage 3 demo app = agent's choice of language (the language-agnosticism IS
   the thesis).
