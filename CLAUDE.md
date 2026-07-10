@@ -24,3 +24,9 @@ via Terraform, reusable GitHub Actions, and an `app-manifest.yaml` contract.
   documented threshold.
 - Scope discipline: new ideas go to spec §11 (roadmap parking lot), not into
   v1. The non-goals section (§4) is binding.
+
+## Subagent Usage
+
+- Use subagents whenever possible 
+- Always choose the lowest cost agent that is still capable of doing the task.
+
