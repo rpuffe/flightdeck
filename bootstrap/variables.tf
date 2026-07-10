@@ -1,0 +1,40 @@
+variable "region" {
+  description = "AWS region for all flightdeck resources"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "parent_zone_name" {
+  description = "Existing Route53 zone delegated from. DATA SOURCE ONLY apart from the single NS delegation record (spec 5b)."
+  type        = string
+  default     = "robertpuffe.com"
+}
+
+variable "subdomain" {
+  description = "Child zone label under the parent zone; apps live at <name>.<subdomain>.<parent_zone_name>"
+  type        = string
+  default     = "fd"
+}
+
+variable "github_owner" {
+  description = "GitHub owner whose repos the OIDC deploy role trusts"
+  type        = string
+  default     = "rpuffe"
+}
+
+variable "apps" {
+  description = "App names; drives ECR repo-per-app via for_each. Grows as apps onboard."
+  type        = list(string)
+  default     = []
+}
+
+variable "budget_limit_usd" {
+  description = "Monthly budget alarm threshold in USD"
+  type        = string
+  default     = "30"
+}
+
+variable "alert_email" {
+  description = "Email for budget notifications. Set via bootstrap.auto.tfvars (gitignored) — see example.tfvars."
+  type        = string
+}
