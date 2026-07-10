@@ -1,0 +1,16 @@
+# Local agent instructions — private, never committed
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+crash.log
+*.tfplan
+
+# OS / editor
+.DS_Store
