@@ -23,25 +23,36 @@ validate:
 	$(TF) -chdir=$(BOOTSTRAP) init -input=false -backend=false > /dev/null
 	$(TF) -chdir=$(BOOTSTRAP) validate
 
+# On the very first run the state bucket doesn't exist yet, and terraform
+# refuses to plan/apply with an uninitialized backend block — so the block is
+# set aside (backend.tf.off), the run uses the implicit local backend, and
+# `bootstrap` migrates state into the bucket afterwards.
 plan-bootstrap:
 	@if aws s3api head-bucket --bucket $(STATE_BUCKET) 2>/dev/null; then \
-		$(TF) -chdir=$(BOOTSTRAP) init -input=false $(BACKEND_FLAGS); \
+		$(TF) -chdir=$(BOOTSTRAP) init -input=false $(BACKEND_FLAGS) && \
+		$(TF) -chdir=$(BOOTSTRAP) plan; \
 	else \
-		$(TF) -chdir=$(BOOTSTRAP) init -input=false -backend=false; \
+		echo ">> First run (state bucket absent): planning against local state" && \
+		mv $(BOOTSTRAP)/backend.tf $(BOOTSTRAP)/backend.tf.off && \
+		$(TF) -chdir=$(BOOTSTRAP) init -input=false -reconfigure; \
+		$(TF) -chdir=$(BOOTSTRAP) plan; \
+		status=$$?; \
+		mv $(BOOTSTRAP)/backend.tf.off $(BOOTSTRAP)/backend.tf; \
+		exit $$status; \
 	fi
-	$(TF) -chdir=$(BOOTSTRAP) plan
 
-# First run: the state bucket is created by this very stack, so apply runs
-# against local state, then state migrates into the bucket. Subsequent runs
-# init against the bucket directly.
 bootstrap:
 	@if aws s3api head-bucket --bucket $(STATE_BUCKET) 2>/dev/null; then \
 		$(TF) -chdir=$(BOOTSTRAP) init -input=false $(BACKEND_FLAGS) && \
 		$(TF) -chdir=$(BOOTSTRAP) apply; \
 	else \
 		echo ">> First run: applying with local state, then migrating to S3" && \
-		$(TF) -chdir=$(BOOTSTRAP) init -input=false -backend=false && \
-		$(TF) -chdir=$(BOOTSTRAP) apply && \
+		mv $(BOOTSTRAP)/backend.tf $(BOOTSTRAP)/backend.tf.off && \
+		$(TF) -chdir=$(BOOTSTRAP) init -input=false -reconfigure; \
+		$(TF) -chdir=$(BOOTSTRAP) apply; \
+		status=$$?; \
+		mv $(BOOTSTRAP)/backend.tf.off $(BOOTSTRAP)/backend.tf; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
 		$(TF) -chdir=$(BOOTSTRAP) init -input=false -migrate-state -force-copy $(BACKEND_FLAGS) && \
 		rm -f $(BOOTSTRAP)/terraform.tfstate $(BOOTSTRAP)/terraform.tfstate.backup && \
 		echo ">> State migrated to s3://$(STATE_BUCKET)"; \

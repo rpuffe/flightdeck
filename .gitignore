@@ -14,3 +14,6 @@ crash.log
 
 # OS / editor
 .DS_Store
+
+# Transient first-run artifact from make bootstrap/plan-bootstrap
+backend.tf.off
