@@ -1,0 +1,14 @@
+# The flightdeck manifest contract (v1, final — spec §6).
+# The only file in this repo with app-specific infra facts. Every field here
+# exists because a real deploy needed it — no speculative fields, no `image`
+# (CI computes and injects the image reference per build; apps never pin one).
+name: my-app        # dns-safe service name; becomes service/log/target-group names
+                     # and the URL host (https://<name>.fd.robertpuffe.com).
+                     # must match ^[a-z][a-z0-9-]{0,19}$ (lowercase, starts with
+                     # a letter, hyphens ok, max 20 chars)
+port: 8080           # port the container listens on
+healthcheck: /healthz  # HTTP path; must return 200 within 30s of container start
+cpu: 256             # Fargate CPU units (valid cpu/memory pairs: 256/512,
+memory: 512          # 256/1024, 512/1024, 1024/2048, etc. — see CONVENTIONS.md)
+env:                 # non-secret config only — NO secrets, tokens, or credentials
+  LOG_LEVEL: info    # here; v1 has no secret support (see CONVENTIONS.md)

@@ -1,0 +1,82 @@
+name: build-scan-push
+
+# Reusable workflow: build the app's image, gate on a Trivy scan, push to ECR.
+# Called by an app repo's deploy.yml wrapper. Checks out the CALLING repo
+# (default actions/checkout behavior in a reusable workflow) — the app's
+# source, Dockerfile, and app-manifest.yaml, not this flightdeck repo.
+on:
+  workflow_call:
+    inputs:
+      aws-role-arn:
+        description: OIDC deploy role to assume in the caller's account
+        type: string
+        required: true
+      aws-region:
+        description: AWS region for ECR and STS
+        type: string
+        default: us-east-1
+    outputs:
+      image:
+        description: Full pushed image reference (registry/repo:tag)
+        value: ${{ jobs.build-scan-push.outputs.image }}
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read app name from manifest
+        id: manifest
+        run: |
+          if [ ! -f app-manifest.yaml ]; then
+            echo "::error::app-manifest.yaml not found at repo root — every flightdeck app must have one (spec §6)."
+            exit 1
+          fi
+          name="$(yq '.name' app-manifest.yaml)"
+          if [ -z "$name" ] || [ "$name" = "null" ]; then
+            echo "::error::app-manifest.yaml is missing the required 'name' field."
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: docker build -t app:${{ github.sha }} .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: app:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          # Unfixable vulns would block builds with no available remediation —
+          # gate only on issues a fix could actually resolve (spec §5b threshold).
+          ignore-unfixed: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Log in to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag and push
+        id: push
+        run: |
+          # ECR repo tags are IMMUTABLE (bootstrap platform.tf) — one tag per
+          # commit SHA, never reused, so a re-push of the same commit can't
+          # silently overwrite a previously scanned image.
+          registry="${{ steps.ecr-login.outputs.registry }}"
+          repo="flightdeck/${{ steps.manifest.outputs.name }}"
+          image="$registry/$repo:${{ github.sha }}"
+          docker tag app:${{ github.sha }} "$image"
+          docker push "$image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"

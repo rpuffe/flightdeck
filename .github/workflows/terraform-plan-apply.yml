@@ -1,0 +1,107 @@
+# Reusable workflow: fmt/validate, Trivy IaC scan, plan, apply.
+# Called by deploy.yml (this repo) with the image built by build-scan-push.yml.
+# v1 deploys on merge to main only (spec 5a) — the caller controls the
+# trigger, so apply here is unconditional (no environment gate, no manual
+# approval step).
+name: terraform-plan-apply
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Full image reference to deploy"
+        type: string
+        required: true
+      aws-role-arn:
+        description: "OIDC deploy role ARN to assume"
+        type: string
+        required: true
+      aws-region:
+        description: "AWS region"
+        type: string
+        default: "us-east-1"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  plan-apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Deliberate HIGH/CRITICAL-only gate (spec 5b threshold). Trivy replaces
+      # tfsec/checkov here because OSS checkov can't filter findings by
+      # severity, only by check id — Trivy's --severity flag does exactly
+      # what the gate needs.
+      - name: Trivy IaC scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: "config"
+          scan-ref: "."
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "~> 1.13"
+          # The wrapper breaks piping/exit-code handling in scripted steps.
+          terraform_wrapper: false
+
+      # yq ships preinstalled on the ubuntu-latest runner image; no setup step needed.
+      - name: Read app name from manifest
+        id: manifest
+        run: |
+          if [ ! -f app-manifest.yaml ]; then
+            echo "::error::app-manifest.yaml not found at repo root — every flightdeck app must have one (spec §6)."
+            exit 1
+          fi
+          name=$(yq '.name' app-manifest.yaml)
+          if [ -z "$name" ] || [ "$name" = "null" ]; then
+            echo "::error::app-manifest.yaml is missing required field 'name'"
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      # Never committed: the bootstrap-created bucket name is deterministic
+      # from the account id, so callers never need to know or pass it.
+      - name: Derive state bucket
+        id: state
+        run: |
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          echo "bucket=flightdeck-tfstate-${account_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ steps.state.outputs.bucket }}" \
+            -backend-config="key=apps/${{ steps.manifest.outputs.name }}/terraform.tfstate" \
+            -backend-config="region=${{ inputs.aws-region }}" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: |
+          terraform plan -input=false \
+            -var "image=${{ inputs.image }}" \
+            -var "state_bucket=${{ steps.state.outputs.bucket }}"
+
+      - name: Terraform apply
+        run: |
+          terraform apply -auto-approve -input=false \
+            -var "image=${{ inputs.image }}" \
+            -var "state_bucket=${{ steps.state.outputs.bucket }}"

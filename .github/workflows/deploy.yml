@@ -1,0 +1,36 @@
+# THE single entrypoint app repos call. An app's ci.yml pins exactly one ref:
+#
+#   uses: rpuffe/flightdeck/.github/workflows/deploy.yml@<tag>
+#
+# The nested `./.github/workflows/...` references below resolve inside THIS
+# repo at the same ref the caller pinned — so build-scan-push and
+# terraform-plan-apply version together with that one tag, and apps upgrade
+# the whole pipeline by bumping it.
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      aws-role-arn:
+        description: "OIDC deploy role ARN to assume"
+        type: string
+        required: true
+      aws-region:
+        description: "AWS region"
+        type: string
+        default: "us-east-1"
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-scan-push.yml
+    with:
+      aws-role-arn: ${{ inputs.aws-role-arn }}
+      aws-region: ${{ inputs.aws-region }}
+
+  deploy:
+    needs: build
+    uses: ./.github/workflows/terraform-plan-apply.yml
+    with:
+      image: ${{ needs.build.outputs.image }}
+      aws-role-arn: ${{ inputs.aws-role-arn }}
+      aws-region: ${{ inputs.aws-region }}

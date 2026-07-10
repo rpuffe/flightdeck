@@ -1,0 +1,20 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+crash.*.log
+
+# Local/editor cruft
+.DS_Store
+*.log
+.env
+.env.*
+
+# Dependency dirs
+node_modules/
+vendor/
+__pycache__/
+*.pyc

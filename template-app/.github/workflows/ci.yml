@@ -1,0 +1,20 @@
+# Thin caller — do not edit. Editing this file takes you off the golden path
+# (spec §4). All real logic lives in the reusable workflow this calls.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write # OIDC — no long-lived AWS keys
+  contents: read
+
+jobs:
+  deploy:
+    uses: rpuffe/flightdeck/.github/workflows/deploy.yml@v0.1.0
+    with:
+      # Set once at repo creation (onboarding step) as a repo variable:
+      # Settings -> Secrets and variables -> Actions -> Variables ->
+      # FLIGHTDECK_DEPLOY_ROLE_ARN.
+      aws-role-arn: ${{ vars.FLIGHTDECK_DEPLOY_ROLE_ARN }}

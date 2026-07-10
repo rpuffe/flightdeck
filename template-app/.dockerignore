@@ -1,0 +1,22 @@
+# Terraform — never belongs in the image
+*.tf
+*.tfvars
+*.tfstate*
+.terraform/
+.terraform.lock.hcl
+
+# VCS / CI
+.git/
+.github/
+
+# Local/editor cruft
+.DS_Store
+*.log
+.env
+.env.*
+
+# Dependency dirs — rebuilt inside the image, not copied in
+node_modules/
+vendor/
+__pycache__/
+*.pyc
