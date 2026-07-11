@@ -24,14 +24,14 @@ on:
 
 jobs:
   build:
-    uses: rpuffe/flightdeck/.github/workflows/build-scan-push.yml@v0.1.1
+    uses: rpuffe/flightdeck/.github/workflows/build-scan-push.yml@v0.1.2
     with:
       aws-role-arn: ${{ inputs.aws-role-arn }}
       aws-region: ${{ inputs.aws-region }}
 
   deploy:
     needs: build
-    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.1.1
+    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.1.2
     with:
       image: ${{ needs.build.outputs.image }}
       aws-role-arn: ${{ inputs.aws-role-arn }}

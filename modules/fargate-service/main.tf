@@ -113,6 +113,12 @@ resource "aws_vpc_security_group_ingress_rule" "service" {
   to_port                      = var.port
 }
 
+# Documented exception (the app-repo Trivy gate scans this module remotely):
+# tasks must reach ECR, CloudWatch Logs, and app dependencies via NAT, and
+# AWS-0104 fires on the 0.0.0.0/0 CIDR regardless of port scoping.
+# Compensating controls: private subnets, ALB-only ingress, permissionless
+# task role. Egress lockdown (VPC endpoints + explicit CIDRs) is roadmap work.
+#trivy:ignore:aws-0104
 resource "aws_vpc_security_group_egress_rule" "service" {
   security_group_id = aws_security_group.service.id
   description       = "All outbound"
