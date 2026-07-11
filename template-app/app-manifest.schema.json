@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/rpuffe/flightdeck/blob/main/template-app/app-manifest.schema.json",
   "title": "flightdeck app-manifest",
-  "description": "The flightdeck app-manifest contract (v1, spec §6). Exactly six fields, nothing else — CI supplies the image, never add an image field.",
+  "description": "The flightdeck app-manifest contract (v1, spec §6). Six required/optional core fields plus the optional 'storage' opt-in, nothing else — CI supplies the image, never add an image field.",
   "type": "object",
   "properties": {
     "name": {
@@ -32,11 +32,19 @@
     },
     "env": {
       "type": "object",
-      "description": "Non-secret config only — NO secrets, tokens, or credentials; v1 has no secret support. Flat map of string keys to string values.",
+      "description": "Non-secret config only — NO secrets, tokens, or credentials; v1 has no secret support. Flat map of string keys to string values. STORAGE_BUCKET is reserved — the platform injects it when 'storage: s3' is set; do not define it here.",
       "additionalProperties": {
         "type": "string"
       },
+      "not": {
+        "required": ["STORAGE_BUCKET"]
+      },
       "default": {}
+    },
+    "storage": {
+      "type": "string",
+      "enum": ["s3"],
+      "description": "Opt in to a private, encrypted S3 bucket for this environment (dev and prod get separate buckets). Grants the app's task role access to exactly that bucket and nothing else. The bucket name arrives via the STORAGE_BUCKET env var — do not set that key yourself in 'env'. Data is destroyed with the stack (see docs/contract.md)."
     }
   },
   "required": ["name", "port", "healthcheck", "cpu", "memory"],

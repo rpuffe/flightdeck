@@ -64,3 +64,9 @@ tag that same SHA.
   Give newly deployed tasks about **2 minutes** to stabilize and pass their
   target-group health check before the platform reports steady state.
   Don't panic-redeploy inside that window.
+- **Healthcheck times out in `make preflight` but the app "works" when you
+  poke it manually**: you made boot or the healthcheck depend on
+  `storage: s3`. `make preflight` / `make run` have no AWS — `STORAGE_BUCKET`
+  is unset locally, same as any environment where storage isn't reachable.
+  The healthcheck must pass without it; degrade to memory (`docs/contract.md`,
+  Storage section).

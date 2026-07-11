@@ -22,3 +22,8 @@ output "task_role_name" {
   description = "Name of the app's ECS task role (no permissions attached in v1)"
   value       = aws_iam_role.task.name
 }
+
+output "storage_bucket" {
+  description = "Name of the app's S3 storage bucket when storage = \"s3\", null otherwise"
+  value       = one(aws_s3_bucket.data[*].bucket)
+}

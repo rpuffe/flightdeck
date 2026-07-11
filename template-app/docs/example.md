@@ -20,6 +20,10 @@ code — a static nginx site. Caveat: `hello` predates the scan gates and
 runs as root on port 80; it's grandfathered, not a pattern to copy — your
 app needs a non-root user and a port >= 1024 (`docs/contract.md`, rule 6).
 
+For a `storage: s3` worked example, once built, see the arcade app spec'd at
+`spec-docs/arcade-app-spec.md` in the platform repo — the first app whose
+data must survive restarts.
+
 ## Build sequence
 
 1. Write the app + Dockerfile against `docs/contract.md` and

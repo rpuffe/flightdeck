@@ -19,6 +19,10 @@ image to prod (`https://<name>.fd.robertpuffe.com`) — no rebuild. Pull
 requests only run credential-free checks (build, scans, fmt/validate); no
 deploy happens on a PR.
 
+**Optional `storage: s3`** in the manifest grants a private per-environment
+bucket via the injected `STORAGE_BUCKET` env var. Your healthcheck must
+never depend on it — see `docs/contract.md`.
+
 ## Docs — read the one for the task at hand, not all of them upfront
 
 - `docs/contract.md` — runtime expectations: what your app must do, what the platform already does for you.

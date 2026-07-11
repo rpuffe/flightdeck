@@ -15,7 +15,7 @@ jobs:
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
-    uses: rpuffe/flightdeck/.github/workflows/pr-checks.yml@v0.3.0
+    uses: rpuffe/flightdeck/.github/workflows/pr-checks.yml@v0.4.0
 
   # main = dev at https://<name>-dev.fd.robertpuffe.com
   deploy:
@@ -23,7 +23,7 @@ jobs:
     permissions:
       id-token: write # OIDC — no long-lived AWS keys
       contents: read
-    uses: rpuffe/flightdeck/.github/workflows/deploy.yml@v0.3.0
+    uses: rpuffe/flightdeck/.github/workflows/deploy.yml@v0.4.0
     with:
       # Set once at repo creation (onboarding step) as a repo variable:
       # Settings -> Secrets and variables -> Actions -> Variables ->
@@ -38,6 +38,6 @@ jobs:
     permissions:
       id-token: write # OIDC — no long-lived AWS keys
       contents: read
-    uses: rpuffe/flightdeck/.github/workflows/promote.yml@v0.3.0
+    uses: rpuffe/flightdeck/.github/workflows/promote.yml@v0.4.0
     with:
       aws-role-arn: ${{ vars.FLIGHTDECK_DEPLOY_ROLE_ARN }}

@@ -10,6 +10,17 @@ data "aws_region" "current" {}
 # host header, log group, alarm name, and task family below.
 locals {
   svc_name = var.environment == "prod" ? var.name : "${var.name}-${var.environment}"
+
+  # Built via merge() with a {}-default branch (never by indexing
+  # aws_s3_bucket.data[0] directly), so this tolerates the bucket's
+  # count = 0 in the no-storage path and the merge is a no-op: storage = ""
+  # (the default) renders a container env byte-identical to pre-v0.4.0,
+  # since merge(var.env, {}) has exactly var.env's keys and STORAGE_BUCKET
+  # never appears.
+  container_env = merge(
+    var.env,
+    var.storage == "s3" ? { STORAGE_BUCKET = one(aws_s3_bucket.data[*].bucket) } : {}
+  )
 }
 
 # ---------------------------------------------------------------------------
@@ -81,11 +92,11 @@ resource "aws_ecs_task_definition" "app" {
       ]
 
       # Sorted for plan stability: map iteration order isn't guaranteed,
-      # a list built straight from var.env would show spurious diffs.
+      # a list built straight from the map would show spurious diffs.
       environment = [
-        for k in sort(keys(var.env)) : {
+        for k in sort(keys(local.container_env)) : {
           name  = k
-          value = var.env[k]
+          value = local.container_env[k]
         }
       ]
 

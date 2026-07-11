@@ -31,7 +31,7 @@ check-tools:
 validate-manifest:
 	@test -f $(MANIFEST) || { echo "$(MANIFEST) not found at repo root → see docs/contract.md"; exit 1; }
 	@for k in $$(yq 'keys | .[]' $(MANIFEST)); do \
-	  case " name port healthcheck cpu memory env " in \
+	  case " name port healthcheck cpu memory env storage " in \
 	    *" $$k "*) : ;; \
 	    *) if [ "$$k" = "image" ]; then \
 	         echo "app-manifest.yaml has an 'image' field — CI supplies the image, never add one → see docs/contract.md"; \
@@ -80,12 +80,23 @@ validate-manifest:
 	fi
 	@if [ "$$(yq '.env' $(MANIFEST))" != "null" ]; then \
 	  for k in $$(yq '.env | keys | .[]' $(MANIFEST)); do \
+	    if [ "$$k" = "STORAGE_BUCKET" ]; then \
+	      echo "env.STORAGE_BUCKET is reserved — the platform injects it when storage: s3 is set, don't define it yourself → see docs/contract.md"; \
+	      exit 1; \
+	    fi; \
 	    t=$$(yq ".env.$$k | tag" $(MANIFEST)); \
 	    if [ "$$t" != "!!str" ]; then \
 	      echo "env.$$k must be a string value (found $$t) → see docs/contract.md"; \
 	      exit 1; \
 	    fi; \
 	  done; \
+	fi
+	@if [ "$$(yq '.storage' $(MANIFEST))" != "null" ]; then \
+	  storage=$$(yq '.storage' $(MANIFEST)); \
+	  if [ "$$storage" != "s3" ]; then \
+	    echo "storage '$$storage' is invalid — only 's3' is supported → see docs/contract.md"; \
+	    exit 1; \
+	  fi; \
 	fi
 	@echo "==> manifest OK"
 

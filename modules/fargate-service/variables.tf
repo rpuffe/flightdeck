@@ -50,6 +50,22 @@ variable "env" {
   description = "Non-secret environment variables for the container."
   type        = map(string)
   default     = {}
+
+  validation {
+    condition     = !contains(keys(var.env), "STORAGE_BUCKET")
+    error_message = "env.STORAGE_BUCKET is reserved — the platform injects it when storage: s3 is set"
+  }
+}
+
+variable "storage" {
+  description = "Optional platform storage the app needs. \"\" (default) = none, no new resources. \"s3\" = a private, per-environment S3 bucket; its name is injected into the container as the STORAGE_BUCKET env var, and the task role gets scoped read/write/list access to it."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = contains(["", "s3"], var.storage)
+    error_message = "storage must be \"\" (no storage, the default) or \"s3\"."
+  }
 }
 
 # ---------------------------------------------------------------------------
