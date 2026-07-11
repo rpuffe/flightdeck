@@ -86,6 +86,23 @@ should pay off more on narrow tasks (a config tweak needs one doc, not the
 monolith); the measured v0.2.0 wins are local feedback speed and encoded
 lessons.
 
+## v0.3.0 pipeline proof (`board`: PR checks, dev on main, tag-promoted prod)
+
+All three triggers demonstrated on a real app in one sequence. Push of the
+v0.3.0 bump → `board-dev.fd` live on the new `apps/board/dev/` state key
+while prod stayed on its legacy key. Tag `v1.0.0` on the same commit →
+promote resolved the image main had just built, applied to prod, and both
+environments came out running the **byte-identical image SHA** (`d98c715…`)
+— build-once/promote-the-artifact verified, not asserted. A test PR then
+ran the credential-free checks (build + both Trivy gates + fmt/validate)
+while deploy/promote correctly skipped.
+
+Incidental drift lesson: all prod services had been manually scaled to 0
+overnight (console cost-saving). Terraform state said desired_count = 1,
+so the promotion apply silently restored prod board to running — manual
+console changes last exactly until the next deploy. Working as designed,
+worth knowing.
+
 ## Shape-generality run (`board`: frontend + API, one container)
 
 Third cold run, new app shape: a message board — static HTML/JS page and a
