@@ -27,7 +27,9 @@ than a per-app project.
 1. **Idea → running URL in under 15 minutes** using a coding agent + this platform.
 2. Compliant-by-default pipeline: image scan, IaC scan, OIDC auth (no long-lived keys).
 3. A manifest contract (`app-manifest.yaml`) any conforming app can satisfy.
-4. A conventions doc (`CONVENTIONS.md`) that a coding agent consumes as context.
+4. An agent-facing contract a coding agent consumes as context (v0.2.0 shape:
+   thin `AGENTS.md` index + task-scoped docs + machine-checkable schema +
+   `make preflight` — see §7).
 5. Clean teardown: `make destroy` leaves nothing behind. Budget alarm from day one.
 6. A high-quality README and architecture diagram.
 
@@ -94,10 +96,13 @@ repo: flightdeck (github.com/rpuffe/flightdeck, public)
 │   ├── terraform-plan-apply.yml  (fmt, validate, Trivy IaC scan, plan, apply)
 │   └── deploy.yml            (calls the above; triggered on merge to main)
 ├── template-app/         # GitHub template repo contents
+│   ├── AGENTS.md + CLAUDE.md      # thin always-in-context index (~20 lines)
 │   ├── app-manifest.yaml
-│   ├── CONVENTIONS.md    # the agent-facing context file
-│   ├── Dockerfile        # placeholder, agent replaces
-│   └── .github/workflows/ci.yml  # thin caller of reusable workflows
+│   ├── app-manifest.schema.json   # manifest rules, machine-checkable
+│   ├── Makefile                   # make preflight: CI's gates, locally
+│   ├── docs/                      # task-scoped contract docs, read on demand
+│   ├── Dockerfile                 # placeholder, agent replaces
+│   └── .github/workflows/ci.yml   # thin caller of reusable workflows
 └── Makefile              # bootstrap / deploy / destroy / demo targets
 ```
 
@@ -161,15 +166,26 @@ needed and is gone (SSM injection lives in §11 v2); `image` is deliberately
 NOT a manifest field — CI computes it per build, apps never pin their own
 image reference.
 
-## 7. CONVENTIONS.md (agent contract) — contents
+## 7. The agent contract — structure (v0.2.0, restructured from one CONVENTIONS.md)
 
-- What the platform provides (URL, TLS, logs, restart on failure) and expects
-  (Dockerfile, manifest, health endpoint, listen on `$PORT`, log to stdout).
-- Explicit constraints: no local disk persistence, no privileged containers,
-  stateless, 12-factor config via env.
-- One worked example.
-- This file is handed to the coding agent alongside the app spec. Every agent
-  failure in Stage 2 patches either this doc or the platform.
+Redesigned after Stage 3 as a developer tool rather than a monolithic context
+file — context is loaded per task, and rules are enforced by tooling at the
+moment of failure instead of memorized upfront:
+
+- `AGENTS.md` / `CLAUDE.md` (identical, ~20 lines) — the only always-loaded
+  context: identity, "run `make preflight` before every push", untouchable
+  files, and a doc index with "read the doc for the task at hand".
+- `app-manifest.schema.json` — field rules (name regex, port range, valid
+  Fargate cpu/memory pairs, string-only env) as machine-checkable schema.
+- `make preflight` — mirrors CI's gates locally: manifest validation, amd64
+  build, container boot + healthcheck within the 30s contract, the exact
+  Trivy scans CI runs. Failures print the rule broken plus a pointer to the
+  one doc that explains it. Turns multi-minute CI round-trips into local
+  seconds.
+- `docs/contract.md`, `docs/dockerfile.md`, `docs/pipeline.md`,
+  `docs/example.md` — task-scoped depth, read on demand.
+- The contract is handed to the coding agent alongside the app spec. Every
+  agent failure in the loop patches the contract or the platform.
 
 ## 8. Work breakdown
 

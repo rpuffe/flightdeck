@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   deploy:
-    uses: rpuffe/flightdeck/.github/workflows/deploy.yml@v0.1.2
+    uses: rpuffe/flightdeck/.github/workflows/deploy.yml@v0.2.0
     with:
       # Set once at repo creation (onboarding step) as a repo variable:
       # Settings -> Secrets and variables -> Actions -> Variables ->

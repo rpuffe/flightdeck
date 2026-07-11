@@ -56,7 +56,7 @@ locals {
 }
 
 module "app" {
-  source = "git::https://github.com/rpuffe/flightdeck.git//modules/fargate-service?ref=v0.1.2"
+  source = "git::https://github.com/rpuffe/flightdeck.git//modules/fargate-service?ref=v0.2.0"
 
   name             = local.manifest.name
   port             = local.manifest.port

@@ -8,7 +8,7 @@ name: my-app        # dns-safe service name; becomes service/log/target-group na
                      # a letter, hyphens ok, max 20 chars)
 port: 8080           # port the container listens on
 healthcheck: /healthz  # HTTP path; must return 200 within 30s of container start
-cpu: 256             # Fargate CPU units (valid cpu/memory pairs: 256/512,
-memory: 512          # 256/1024, 512/1024, 1024/2048, etc. — see CONVENTIONS.md)
+cpu: 256             # Fargate CPU units (valid cpu/memory pairs enforced by
+memory: 512          # app-manifest.schema.json — 256/512 fits most demo apps)
 env:                 # non-secret config only — NO secrets, tokens, or credentials
-  LOG_LEVEL: info    # here; v1 has no secret support (see CONVENTIONS.md)
+  LOG_LEVEL: info    # here; v1 has no secret support (see docs/contract.md)
