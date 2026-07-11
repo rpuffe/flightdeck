@@ -147,7 +147,6 @@ data "aws_iam_policy_document" "deploy_permissions" {
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
       "logs:PutRetentionPolicy",
-      "logs:DescribeLogGroups",
       "logs:TagResource",
       "logs:UntagResource",
       "logs:ListTagsForResource",
@@ -155,6 +154,14 @@ data "aws_iam_policy_document" "deploy_permissions" {
     resources = [
       "arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:${local.name_prefix}*",
     ]
+  }
+
+  # DescribeLogGroups is a list call the provider issues unscoped; it cannot
+  # be restricted to a name prefix (read-only).
+  statement {
+    sid       = "LogGroupsList"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:*"]
   }
 
   statement {
@@ -204,14 +211,21 @@ data "aws_iam_policy_document" "deploy_permissions" {
   }
 
   statement {
-    sid       = "TaskSgTagOnCreate"
-    actions   = ["ec2:CreateTags"]
-    resources = ["arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:security-group/*"]
+    sid     = "TaskSgTagOnCreate"
+    actions = ["ec2:CreateTags"]
+    resources = [
+      "arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+      "arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:security-group-rule/*",
+    ]
 
     condition {
       test     = "StringEquals"
       variable = "ec2:CreateAction"
-      values   = ["CreateSecurityGroup"]
+      values = [
+        "CreateSecurityGroup",
+        "AuthorizeSecurityGroupIngress",
+        "AuthorizeSecurityGroupEgress",
+      ]
     }
   }
 
@@ -224,6 +238,7 @@ data "aws_iam_policy_document" "deploy_permissions" {
       "ec2:AuthorizeSecurityGroupEgress",
       "ec2:RevokeSecurityGroupIngress",
       "ec2:RevokeSecurityGroupEgress",
+      "ec2:ModifySecurityGroupRules",
       "ec2:DeleteSecurityGroup",
     ]
     resources = ["arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:security-group/*"]
@@ -233,6 +248,23 @@ data "aws_iam_policy_document" "deploy_permissions" {
       variable = "aws:ResourceTag/project"
       values   = ["flightdeck"]
     }
+  }
+
+  # Rule actions authorize against BOTH the security-group and the
+  # security-group-rule resource; rules carry no tags at authorize time, so
+  # the tag condition can never match this resource type. Unconditioned here
+  # is still safe: IAM requires the paired security-group resource above,
+  # which stays tag-guarded.
+  statement {
+    sid = "TaskSgRules"
+    actions = [
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:AuthorizeSecurityGroupEgress",
+      "ec2:RevokeSecurityGroupIngress",
+      "ec2:RevokeSecurityGroupEgress",
+      "ec2:ModifySecurityGroupRules",
+    ]
+    resources = ["arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:security-group-rule/*"]
   }
 
   # --- IAM: app task roles ---
