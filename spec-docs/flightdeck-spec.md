@@ -191,10 +191,10 @@ image reference.
       https://hello.fd.robertpuffe.com
 
 ### Stage 2 — CI + contract (Weekend 2, Saturday)
-- [ ] Reusable workflows: build-scan-push, terraform-plan-apply
-- [ ] tfsec/checkov + Trivy gates on
-- [ ] template-app repo with manifest + CONVENTIONS.md + thin CI caller
-- [ ] **Exit criteria:** push to a new app repo → deployed with zero pipeline config
+- [x] Reusable workflows: build-scan-push, terraform-plan-apply
+- [x] tfsec/checkov + Trivy gates on
+- [x] template-app repo with manifest + CONVENTIONS.md + thin CI caller
+- [x] **Exit criteria:** push to a new app repo → deployed with zero pipeline config
 
 ### Stage 3 — The AI loop (Weekend 2, Sunday)
 - [ ] Write a small app spec (todo API or similar)
