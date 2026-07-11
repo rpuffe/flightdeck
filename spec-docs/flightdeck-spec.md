@@ -226,7 +226,7 @@ moment of failure instead of memorized upfront:
       a platform bug
 
 ### Stage 5 — Writeup (Weekend 3)
-- [ ] README: problem, architecture diagram, quickstart, failure log,
+- [x] README: problem, architecture diagram, quickstart, failure log,
       "what I deliberately didn't build", day-2 future work
 - [ ] **Exit criteria:** someone who's never met you understands and believes it
 
