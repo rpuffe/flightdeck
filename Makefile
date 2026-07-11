@@ -21,8 +21,49 @@ HELLO_BACKEND_FLAGS = -backend-config="bucket=$(STATE_BUCKET)" \
                       -backend-config="region=$(REGION)" \
                       -backend-config="use_lockfile=true"
 
+CLUSTER := flightdeck
+APP_DOMAIN := fd.robertpuffe.com
+
 .PHONY: fmt validate plan-bootstrap bootstrap destroy-bootstrap \
-        plan-hello deploy-hello destroy-hello
+        plan-hello deploy-hello destroy-hello \
+        ps stop start stop-all start-all
+
+# --- Service operations ------------------------------------------------------
+# Scale operations are deliberate drift: terraform state keeps desired_count=1,
+# so the NEXT DEPLOY of a service restores it. Cheap overnight off-switch, not
+# a permanent setting.
+
+ps:
+	@aws ecs list-services --cluster $(CLUSTER) --query 'serviceArns' --output text | tr '\t' '\n' | awk -F/ '{print $$NF}' | sort | while read s; do \
+	  [ -n "$$s" ] || continue; \
+	  aws ecs describe-services --cluster $(CLUSTER) --services $$s \
+	    --query 'services[0].[serviceName,desiredCount,runningCount]' --output text | \
+	  awk '{printf "%-20s desired=%s running=%s  https://%s.$(APP_DOMAIN)\n", $$1, $$2, $$3, $$1}'; \
+	done
+
+stop:
+	@test -n "$(SVC)" || { echo "usage: make stop SVC=<service>   (make ps lists them)"; exit 1; }
+	@aws ecs update-service --cluster $(CLUSTER) --service $(SVC) --desired-count 0 \
+	  --query 'service.[serviceName,desiredCount]' --output text | awk '{print $$1" -> desired="$$2}'
+	@echo "note: next deploy of $(SVC) restores desired=1 (terraform owns that value)"
+
+start:
+	@test -n "$(SVC)" || { echo "usage: make start SVC=<service>   (make ps lists them)"; exit 1; }
+	@aws ecs update-service --cluster $(CLUSTER) --service $(SVC) --desired-count 1 \
+	  --query 'service.[serviceName,desiredCount]' --output text | awk '{print $$1" -> desired="$$2}'
+
+stop-all:
+	@aws ecs list-services --cluster $(CLUSTER) --query 'serviceArns' --output text | tr '\t' '\n' | awk -F/ '{print $$NF}' | while read s; do \
+	  [ -n "$$s" ] || continue; \
+	  aws ecs update-service --cluster $(CLUSTER) --service $$s --desired-count 0 --query 'service.serviceName' --output text | awk '{print $$1" -> desired=0"}'; \
+	done
+	@echo "note: any service's next deploy restores it (terraform owns desired_count)"
+
+start-all:
+	@aws ecs list-services --cluster $(CLUSTER) --query 'serviceArns' --output text | tr '\t' '\n' | awk -F/ '{print $$NF}' | while read s; do \
+	  [ -n "$$s" ] || continue; \
+	  aws ecs update-service --cluster $(CLUSTER) --service $$s --desired-count 1 --query 'service.serviceName' --output text | awk '{print $$1" -> desired=1"}'; \
+	done
 
 fmt:
 	$(TF) -chdir=$(BOOTSTRAP) fmt -recursive

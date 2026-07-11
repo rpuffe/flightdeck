@@ -10,6 +10,10 @@ via Terraform, reusable GitHub Actions, and an `app-manifest.yaml` contract.
 - `make fmt` / `make validate` — format and validate bootstrap Terraform
 - `make plan-bootstrap` — plan (read-only AWS calls)
 - `make bootstrap` / `make destroy-bootstrap` — apply/destroy account-level stack
+- `make ps` — list every service with desired/running counts and URL
+- `make stop SVC=<name>` / `make start SVC=<name>` — scale one service 0/1
+- `make stop-all` / `make start-all` — the overnight off-switch (deliberate
+  drift: any service's next deploy restores desired=1)
 
 ## Binding conventions
 
