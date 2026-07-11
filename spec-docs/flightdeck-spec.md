@@ -255,6 +255,25 @@ Name = flightdeck.
   Scanner = Trivy for BOTH image and IaC (decided W2: tfsec merged into Trivy
   upstream, and open-source checkov cannot filter by severity, which the
   HIGH/CRITICAL-only gate requires — one scanner, working thresholds).
+
+**Decided (2026-07-10, v0.3.0 — §11's multi-env item graduated; the v1
+writeup gate was satisfied):**
+- Environments: push to main → dev (`<name>-dev.fd...`, rides the existing
+  wildcard cert); tag v* → prod (`<name>.fd...`). Promotion deploys the SAME
+  immutable SHA image main built — build once, promote the artifact, never
+  rebuild.
+- PR checks run with ZERO cloud credentials (build + both Trivy gates +
+  fmt/validate). OIDC trust covers main + v* tag refs only — unmerged code
+  never holds credentials. Plan-preview-on-PR needs a separate read-only
+  plan role → §11.
+- Prod state stays at the legacy key (`apps/<name>/terraform.tfstate`), dev
+  at `apps/<name>/dev/` — existing apps get prod continuity with zero state
+  migration. Module `environment=prod` is byte-identical to pre-v0.3.0
+  naming, so adopting the tag is an empty prod diff.
+- App name limit tightened 20 → 16 chars (the `-dev` suffix must fit AWS's
+  32-char target-group name limit).
+- No per-env manifest overrides in v0.3.0 — nothing has needed one yet
+  (§6 rule applies to env features too).
 - Tracking = GitHub Issues + one Milestone per Stage on rpuffe/flightdeck.
 - Stage 3 demo app = agent's choice of language (the language-agnosticism IS
   the thesis).
@@ -275,8 +294,13 @@ writeup exists. Roughly ordered by value-per-effort, not chronology.
 ### v2 — platform depth (makes the demo more real)
 - **Secrets injection via SSM Parameter Store** — populate the `secrets:` manifest
   field; task role gets least-privilege read on its own path only.
-- **Multi-environment promotion** — dev → prod with the same manifest, env-specific
-  overrides, promotion on tag. This is the single biggest realism upgrade.
+- **Multi-environment promotion** — SHIPPED in v0.3.0 (see §10): dev on main,
+  prod on tag, build-once artifact promotion. Env-specific manifest overrides
+  remain future work (none needed yet).
+- **Plan preview on PRs via a read-only plan role** — PR checks are
+  deliberately credential-free; a separate role with read-only + state-read
+  permissions would enable `terraform plan` comments on PRs without handing
+  write credentials to unmerged code.
 - **Preview environments per PR** — ephemeral stack per pull request, auto-destroyed
   on merge/close. Very demoable; watch cost.
 - **Second service type: worker/cron** — manifest grows a `type:` field

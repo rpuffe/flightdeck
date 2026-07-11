@@ -26,13 +26,18 @@ data "aws_iam_policy_document" "github_actions_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Owner-wide trust (any repo under var.github_owner, main branch only) is
-    # deliberate v1 scope: new app repos onboard with zero platform changes.
-    # Tightening to an explicit repo list is future work.
+    # Owner-wide trust (any repo under var.github_owner) is deliberate v1
+    # scope: new app repos onboard with zero platform changes. Tightening to
+    # an explicit repo list is future work. Two ref patterns only: main
+    # (dev deploys) and v* tags (prod promotion) — PR refs are deliberately
+    # excluded, so pull requests run with zero cloud credentials.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_owner}/*:ref:refs/heads/main"]
+      values = [
+        "repo:${var.github_owner}/*:ref:refs/heads/main",
+        "repo:${var.github_owner}/*:ref:refs/tags/v*",
+      ]
     }
   }
 }

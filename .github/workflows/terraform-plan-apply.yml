@@ -1,8 +1,8 @@
 # Reusable workflow: fmt/validate, Trivy IaC scan, plan, apply.
-# Called by deploy.yml (this repo) with the image built by build-scan-push.yml.
-# v1 deploys on merge to main only (spec 5a) — the caller controls the
-# trigger, so apply here is unconditional (no environment gate, no manual
-# approval step).
+# Called by deploy.yml and promote.yml (this repo) with the image built by
+# build-scan-push.yml (dev) or resolved from ECR (prod promotion). The
+# caller controls the trigger and the target environment; apply here is
+# unconditional (no manual approval step) regardless of environment.
 name: terraform-plan-apply
 
 on:
@@ -10,6 +10,10 @@ on:
     inputs:
       image:
         description: "Full image reference to deploy"
+        type: string
+        required: true
+      environment:
+        description: "Target environment: dev or prod"
         type: string
         required: true
       aws-role-arn:
@@ -31,6 +35,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Validate environment input
+        run: |
+          if [ "${{ inputs.environment }}" != "dev" ] && [ "${{ inputs.environment }}" != "prod" ]; then
+            echo "::error::environment must be 'dev' or 'prod', got '${{ inputs.environment }}'"
+            exit 1
+          fi
 
       # Deliberate HIGH/CRITICAL-only gate (spec 5b threshold). Trivy replaces
       # tfsec/checkov here because OSS checkov can't filter findings by
@@ -85,9 +96,16 @@ jobs:
 
       - name: Terraform init
         run: |
+          # Prod keeps the legacy pre-v0.3.0 key so existing single-env apps
+          # get prod continuity with zero state migration; dev nests under it.
+          if [ "${{ inputs.environment }}" = "prod" ]; then
+            key="apps/${{ steps.manifest.outputs.name }}/terraform.tfstate"
+          else
+            key="apps/${{ steps.manifest.outputs.name }}/${{ inputs.environment }}/terraform.tfstate"
+          fi
           terraform init \
             -backend-config="bucket=${{ steps.state.outputs.bucket }}" \
-            -backend-config="key=apps/${{ steps.manifest.outputs.name }}/terraform.tfstate" \
+            -backend-config="key=$key" \
             -backend-config="region=${{ inputs.aws-region }}" \
             -backend-config="use_lockfile=true"
 
@@ -98,10 +116,12 @@ jobs:
         run: |
           terraform plan -input=false \
             -var "image=${{ inputs.image }}" \
+            -var "environment=${{ inputs.environment }}" \
             -var "state_bucket=${{ steps.state.outputs.bucket }}"
 
       - name: Terraform apply
         run: |
           terraform apply -auto-approve -input=false \
             -var "image=${{ inputs.image }}" \
+            -var "environment=${{ inputs.environment }}" \
             -var "state_bucket=${{ steps.state.outputs.bucket }}"
