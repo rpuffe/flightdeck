@@ -25,7 +25,7 @@ variable "github_owner" {
 variable "apps" {
   description = "THE app registry: platform-side onboarding is adding a name here (drives ECR repo-per-app) and re-applying bootstrap. Everything else is app-repo-side."
   type        = list(string)
-  default     = ["ping"]
+  default     = ["ping", "todo"]
 }
 
 variable "budget_limit_usd" {
