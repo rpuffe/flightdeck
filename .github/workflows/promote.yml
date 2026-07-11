@@ -1,0 +1,73 @@
+# Reusable workflow: promote the image main already built to prod. Triggered
+# by an app's ci.yml on v* tags (OIDC trust already covers refs/tags/v* —
+# bootstrap/oidc.tf). Promotion semantics: build once on main, promote that
+# same immutable image to prod — no rebuild, no re-scan, because it already
+# passed both Trivy gates when it went through dev.
+name: promote
+
+on:
+  workflow_call:
+    inputs:
+      aws-role-arn:
+        description: "OIDC deploy role ARN to assume"
+        type: string
+        required: true
+      aws-region:
+        description: "AWS region"
+        type: string
+        default: "us-east-1"
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image: ${{ steps.resolve.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read app name from manifest
+        id: manifest
+        run: |
+          if [ ! -f app-manifest.yaml ]; then
+            echo "::error::app-manifest.yaml not found at repo root — every flightdeck app must have one (spec §6)."
+            exit 1
+          fi
+          name="$(yq '.name' app-manifest.yaml)"
+          if [ -z "$name" ] || [ "$name" = "null" ]; then
+            echo "::error::app-manifest.yaml is missing the required 'name' field."
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.aws-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Resolve and verify image
+        id: resolve
+        run: |
+          repo="flightdeck/${{ steps.manifest.outputs.name }}"
+
+          if ! aws ecr describe-images --repository-name "$repo" --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
+            echo "::error::no image for commit ${{ github.sha }} — promotion deploys the image main already built and validated in dev; tag a commit that has been pushed to main"
+            exit 1
+          fi
+
+          uri=$(aws ecr describe-repositories --repository-names "$repo" --query 'repositories[0].repositoryUri' --output text)
+          echo "image=$uri:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: resolve
+    # Fully-qualified ref on purpose — nested ./ refs resolve against the
+    # CALLING repo and break (see deploy.yml's comment).
+    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.3.0
+    with:
+      image: ${{ needs.resolve.outputs.image }}
+      environment: "prod"
+      aws-role-arn: ${{ inputs.aws-role-arn }}
+      aws-region: ${{ inputs.aws-region }}

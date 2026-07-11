@@ -49,8 +49,8 @@ validate-manifest:
 	  fi; \
 	done
 	@name=$$(yq '.name' $(MANIFEST)); \
-	echo "$$name" | grep -Eq '^[a-z][a-z0-9-]{0,19}$$' || { \
-	  echo "name '$$name' is invalid — must match ^[a-z][a-z0-9-]{0,19}$$ (lowercase, starts with a letter, max 20 chars) → see docs/contract.md"; \
+	echo "$$name" | grep -Eq '^[a-z][a-z0-9-]{0,15}$$' || { \
+	  echo "name '$$name' is invalid — must match ^[a-z][a-z0-9-]{0,15}$$ (lowercase, starts with a letter, max 16 chars — dev stacks append \"-dev\", so this leaves room under the 32-char target-group name limit) → see docs/contract.md"; \
 	  exit 1; \
 	}
 	@port=$$(yq '.port' $(MANIFEST)); \

@@ -7,8 +7,8 @@
   "properties": {
     "name": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{0,19}$",
-      "description": "DNS-safe service name; becomes the URL host (https://<name>.fd.robertpuffe.com) and all AWS resource names. Lowercase letters, digits, hyphens; must start with a letter; max 20 characters."
+      "pattern": "^[a-z][a-z0-9-]{0,15}$",
+      "description": "DNS-safe service name; becomes the URL host (https://<name>.fd.robertpuffe.com) and all AWS resource names. Lowercase letters, digits, hyphens; must start with a letter; max 16 characters (dev stacks append \"-dev\", so this leaves room under the 32-char target-group name limit)."
     },
     "port": {
       "type": "integer",

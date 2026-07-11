@@ -1,20 +1,43 @@
 # Thin caller — do not edit. Editing this file takes you off the golden path
-# (spec §4). All real logic lives in the reusable workflow this calls.
-name: deploy
+# (spec §4). All real logic lives in the reusable workflows this calls.
+name: ci
 
 on:
+  pull_request:
   push:
     branches: [main]
-
-permissions:
-  id-token: write # OIDC — no long-lived AWS keys
-  contents: read
+    tags: ["v*"]
 
 jobs:
+  # Credential-free by design: OIDC trust (bootstrap/oidc.tf) only covers
+  # refs/heads/main and refs/tags/v*, so PR refs never hold AWS credentials.
+  pr-checks:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: rpuffe/flightdeck/.github/workflows/pr-checks.yml@v0.3.0
+
+  # main = dev at https://<name>-dev.fd.robertpuffe.com
   deploy:
-    uses: rpuffe/flightdeck/.github/workflows/deploy.yml@v0.2.0
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write # OIDC — no long-lived AWS keys
+      contents: read
+    uses: rpuffe/flightdeck/.github/workflows/deploy.yml@v0.3.0
     with:
       # Set once at repo creation (onboarding step) as a repo variable:
       # Settings -> Secrets and variables -> Actions -> Variables ->
       # FLIGHTDECK_DEPLOY_ROLE_ARN.
+      aws-role-arn: ${{ vars.FLIGHTDECK_DEPLOY_ROLE_ARN }}
+      environment: dev
+
+  # Tags promote the image main already built to prod — no rebuild, no
+  # re-scan (spec §5a: build once, promote the same image).
+  promote:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write # OIDC — no long-lived AWS keys
+      contents: read
+    uses: rpuffe/flightdeck/.github/workflows/promote.yml@v0.3.0
+    with:
       aws-role-arn: ${{ vars.FLIGHTDECK_DEPLOY_ROLE_ARN }}

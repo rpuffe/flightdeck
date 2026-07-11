@@ -7,10 +7,22 @@ variable "name" {
   type        = string
 
   # "flightdeck-" (11 chars) + name must stay under the 32-char target-group
-  # name limit, so name itself is capped at 20 chars.
+  # name limit, and dev stacks append "-dev" (4 more chars), so name itself
+  # is capped at 16 chars to leave headroom for that suffix.
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{0,19}$", var.name))
-    error_message = "name must be lowercase alphanumeric/hyphens, start with a letter, and be at most 20 characters long."
+    condition     = can(regex("^[a-z][a-z0-9-]{0,15}$", var.name))
+    error_message = "name must be lowercase alphanumeric/hyphens, start with a letter, and be at most 16 characters long (dev stacks append \"-dev\", so this leaves room under the 32-char target-group name limit)."
+  }
+}
+
+variable "environment" {
+  description = "Deploy environment. \"prod\" resource names are unprefixed (byte-identical to pre-environment stacks); \"dev\" resource names get a \"-dev\" suffix."
+  type        = string
+  default     = "prod"
+
+  validation {
+    condition     = contains(["dev", "prod"], var.environment)
+    error_message = "environment must be exactly \"dev\" or \"prod\"."
   }
 }
 

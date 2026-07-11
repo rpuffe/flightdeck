@@ -5,8 +5,12 @@ runtime behavior (not its build rules — see `docs/dockerfile.md` for those).
 
 ## What the platform provides — do not build or code around any of it
 
-- **Public HTTPS URL**: `https://<name>.fd.robertpuffe.com`, TLS terminated
-  at the load balancer. `<name>` comes from `app-manifest.yaml`.
+- **Public HTTPS URL**: push to `main` deploys dev at
+  `https://<name>-dev.fd.robertpuffe.com`; tagging `v*` promotes the same
+  image to prod at `https://<name>.fd.robertpuffe.com`. TLS terminated at
+  the load balancer. `<name>` comes from `app-manifest.yaml` — max 16
+  characters (the `-dev` suffix has to fit AWS's 32-char target-group name
+  limit). See `docs/pipeline.md` for the full trigger/environment model.
 - **Logs**: everything written to stdout/stderr lands in CloudWatch Logs
   automatically.
 - **Restart and rollback**: crashed containers are restarted; a deploy whose

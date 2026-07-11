@@ -4,8 +4,10 @@
 # (CI computes and injects the image reference per build; apps never pin one).
 name: my-app        # dns-safe service name; becomes service/log/target-group names
                      # and the URL host (https://<name>.fd.robertpuffe.com).
-                     # must match ^[a-z][a-z0-9-]{0,19}$ (lowercase, starts with
-                     # a letter, hyphens ok, max 20 chars)
+                     # must match ^[a-z][a-z0-9-]{0,15}$ (lowercase, starts with
+                     # a letter, hyphens ok, max 16 chars — dev stacks append
+                     # "-dev", so this leaves room under the 32-char
+                     # target-group name limit)
 port: 8080           # port the container listens on
 healthcheck: /healthz  # HTTP path; must return 200 within 30s of container start
 cpu: 256             # Fargate CPU units (valid cpu/memory pairs enforced by

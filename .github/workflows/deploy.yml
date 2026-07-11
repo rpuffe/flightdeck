@@ -8,11 +8,18 @@
 # don't exist) — discovered the hard way in the v0.1.0 exit test.
 # RELEASE CHORE: bump these @refs (and template-app's two refs) to the new
 # tag in the same commit that gets tagged.
+#
+# Push to main deploys dev. Prod is reached only via promote.yml on v* tags —
+# never by rebuilding here (spec §5a: build once, promote the same image).
 name: deploy
 
 on:
   workflow_call:
     inputs:
+      environment:
+        description: "Target environment"
+        type: string
+        default: "dev"
       aws-role-arn:
         description: "OIDC deploy role ARN to assume"
         type: string
@@ -24,15 +31,16 @@ on:
 
 jobs:
   build:
-    uses: rpuffe/flightdeck/.github/workflows/build-scan-push.yml@v0.2.0
+    uses: rpuffe/flightdeck/.github/workflows/build-scan-push.yml@v0.3.0
     with:
       aws-role-arn: ${{ inputs.aws-role-arn }}
       aws-region: ${{ inputs.aws-region }}
 
   deploy:
     needs: build
-    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.2.0
+    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.3.0
     with:
       image: ${{ needs.build.outputs.image }}
+      environment: ${{ inputs.environment }}
       aws-role-arn: ${{ inputs.aws-role-arn }}
       aws-region: ${{ inputs.aws-region }}

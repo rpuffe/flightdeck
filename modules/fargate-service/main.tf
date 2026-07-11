@@ -5,12 +5,19 @@
 
 data "aws_region" "current" {}
 
+# environment = "prod" is unprefixed so existing prod stacks see an empty
+# diff; environment = "dev" gets a "-dev" suffix on every resource name,
+# host header, log group, alarm name, and task family below.
+locals {
+  svc_name = var.environment == "prod" ? var.name : "${var.name}-${var.environment}"
+}
+
 # ---------------------------------------------------------------------------
 # Logs
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "app" {
-  name              = "flightdeck/${var.name}"
+  name              = "flightdeck/${local.svc_name}"
   retention_in_days = 30
 }
 
@@ -30,7 +37,7 @@ data "aws_iam_policy_document" "ecs_tasks_assume" {
 }
 
 resource "aws_iam_role" "exec" {
-  name               = "flightdeck-${var.name}-exec"
+  name               = "flightdeck-${local.svc_name}-exec"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
 
@@ -43,7 +50,7 @@ resource "aws_iam_role_policy_attachment" "exec" {
 # all (least privilege). Revisit once the manifest grows secrets/database
 # blocks (spec §11 roadmap) that need scoped IAM.
 resource "aws_iam_role" "task" {
-  name               = "flightdeck-${var.name}-task"
+  name               = "flightdeck-${local.svc_name}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
 
@@ -52,7 +59,7 @@ resource "aws_iam_role" "task" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecs_task_definition" "app" {
-  family                   = "flightdeck-${var.name}"
+  family                   = "flightdeck-${local.svc_name}"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = var.cpu
@@ -87,7 +94,7 @@ resource "aws_ecs_task_definition" "app" {
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.app.name
           "awslogs-region"        = data.aws_region.current.region
-          "awslogs-stream-prefix" = var.name
+          "awslogs-stream-prefix" = local.svc_name
         }
       }
     }
@@ -99,8 +106,8 @@ resource "aws_ecs_task_definition" "app" {
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "service" {
-  name        = "flightdeck-${var.name}"
-  description = "flightdeck ${var.name}: ALB-only ingress on ${var.port}, anywhere out"
+  name        = "flightdeck-${local.svc_name}"
+  description = "flightdeck ${local.svc_name}: ALB-only ingress on ${var.port}, anywhere out"
   vpc_id      = var.vpc_id
 }
 
@@ -131,7 +138,7 @@ resource "aws_vpc_security_group_egress_rule" "service" {
 # ---------------------------------------------------------------------------
 
 resource "aws_lb_target_group" "app" {
-  name        = "flightdeck-${var.name}"
+  name        = "flightdeck-${local.svc_name}"
   port        = var.port
   protocol    = "HTTP"
   target_type = "ip"
@@ -163,7 +170,7 @@ resource "aws_lb_listener_rule" "app" {
 
   condition {
     host_header {
-      values = ["${var.name}.${var.child_zone_name}"]
+      values = ["${local.svc_name}.${var.child_zone_name}"]
     }
   }
 }
@@ -173,7 +180,7 @@ resource "aws_lb_listener_rule" "app" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecs_service" "app" {
-  name            = var.name
+  name            = local.svc_name
   cluster         = var.cluster_arn
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
@@ -209,7 +216,7 @@ resource "aws_ecs_service" "app" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
-  alarm_name          = "flightdeck-${var.name}-cpu-high"
+  alarm_name          = "flightdeck-${local.svc_name}-cpu-high"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "CPUUtilization"
@@ -226,7 +233,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
-  alarm_name          = "flightdeck-${var.name}-unhealthy-hosts"
+  alarm_name          = "flightdeck-${local.svc_name}-unhealthy-hosts"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 1
   metric_name         = "UnHealthyHostCount"

@@ -15,9 +15,15 @@ platform boilerplate; editing either takes the app off the platform.
 **The manifest is `app-manifest.yaml`**, validated against
 `app-manifest.schema.json` — let `make preflight` catch field-level mistakes.
 
+**Environments**: push to `main` deploys dev
+(`https://<name>-dev.fd.robertpuffe.com`); tagging `v*` promotes that exact
+image to prod (`https://<name>.fd.robertpuffe.com`) — no rebuild. Pull
+requests only run credential-free checks (build, scans, fmt/validate); no
+deploy happens on a PR.
+
 ## Docs — read the one for the task at hand, not all of them upfront
 
 - `docs/contract.md` — runtime expectations: what your app must do, what the platform already does for you.
 - `docs/dockerfile.md` — image rules and scan gates.
-- `docs/pipeline.md` — what a push to `main` triggers, and a failure→fix playbook.
+- `docs/pipeline.md` — what PRs, pushes to `main`, and `v*` tags each trigger, and a failure→fix playbook.
 - `docs/example.md` — a worked example, built end-to-end.

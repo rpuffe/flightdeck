@@ -1,6 +1,6 @@
 output "url" {
   description = "Public HTTPS URL the app is served at"
-  value       = "https://${var.name}.${var.child_zone_name}"
+  value       = "https://${local.svc_name}.${var.child_zone_name}"
 }
 
 output "service_name" {

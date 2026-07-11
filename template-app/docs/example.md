@@ -2,8 +2,10 @@
 
 Read this for a concrete reference of what "done" looks like.
 
-**github.com/rpuffe/todo**, live at `https://todo.fd.robertpuffe.com`. Built
-by a coding agent from a spec + this contract, in one session:
+**github.com/rpuffe/todo**, live at `https://todo.fd.robertpuffe.com`
+(promoted to prod via a `v*` tag after `https://todo-dev.fd.robertpuffe.com`
+proved out on `main`). Built by a coding agent from a spec + this contract,
+in one session:
 
 - Zero-dependency `node:22-alpine` API.
 - Manifest sets one env var: `GREETING`.
@@ -24,5 +26,8 @@ app needs a non-root user and a port >= 1024 (`docs/contract.md`, rule 6).
    `docs/dockerfile.md`.
 2. Set `app-manifest.yaml` (`name`, `port`, `healthcheck`, `env`).
 3. `make preflight` — fix anything it flags before pushing.
-4. Push to `main`. The pipeline builds, scans, and deploys; if it fails,
-   `docs/pipeline.md` has the playbook.
+4. Push to `main` → dev. The pipeline builds, scans, and deploys to
+   `https://<name>-dev.fd.robertpuffe.com`; if it fails, `docs/pipeline.md`
+   has the playbook.
+5. Tag `v*` on that same commit to promote it to prod, unchanged. See
+   `docs/pipeline.md` for the promotion rule.
