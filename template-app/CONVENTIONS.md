@@ -108,9 +108,10 @@ failing on HIGH/CRITICAL findings only (a deliberate, documented threshold):
 2. **Trivy IaC scan** on the Terraform.
 
 Practical consequence for you: choose current, slim base images
-(`*-alpine`, `*-slim`, or distroless) and current dependency versions. Old
-or fat base images ship known HIGH/CRITICAL CVEs and will fail the gate
-before your code ever runs.
+(`*-alpine`, `*-slim`, or distroless) and current dependency versions, AND
+upgrade OS packages in the Dockerfile (`apk upgrade --no-cache` /
+`apt-get upgrade -y`) — even current official images lag CVE fixes by days,
+and the gate fails on fixable HIGH/CRITICAL vulns before your code ever runs.
 
 ## Worked example
 

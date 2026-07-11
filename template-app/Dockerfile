@@ -8,7 +8,11 @@ FROM nginxinc/nginx-unprivileged:alpine
 
 # Build-time writes need root; the base image's default user can't write here.
 USER root
-RUN echo "ok" > /usr/share/nginx/html/healthz \
+# apk upgrade: official base images lag CVE fixes by days, and the Trivy gate
+# fails on fixable HIGH/CRITICAL vulns (it caught CVE-2026-33630 in c-ares in
+# a current image). Keep this line — it's what "current base image" means.
+RUN apk upgrade --no-cache \
+    && echo "ok" > /usr/share/nginx/html/healthz \
     && echo "hello from flightdeck" > /usr/share/nginx/html/index.html
 
 # Explicit non-root user: the Trivy gate (DS002, HIGH) checks the Dockerfile
