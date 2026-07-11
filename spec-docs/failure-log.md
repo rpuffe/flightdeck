@@ -85,3 +85,17 @@ applied proactively instead of being rediscovered. Progressive disclosure
 should pay off more on narrow tasks (a config tweak needs one doc, not the
 monolith); the measured v0.2.0 wins are local feedback speed and encoded
 lessons.
+
+## Shape-generality run (`board`: frontend + API, one container)
+
+Third cold run, new app shape: a message board — static HTML/JS page and a
+JSON API from a single service, XSS quality bar, env-driven page title.
+**8m19s spec-to-verified-URL, zero CI failures, zero preflight failures**
+(one pre-push image-tidiness pass: the agent removed corepack's leftover
+lib directory after the binary strip — the docs' npm lesson applied and
+extended unprompted). The agent resolved the fullstack shape correctly as
+one container without being told, verified the XSS bar in a real browser
+(knowing curl can't execute JS), and left main.tf/ci.yml untouched. More
+app than either API-only run, in comparable time, with a cleaner run
+sheet: evidence the contract generalizes across app shapes, not just
+across runs.
