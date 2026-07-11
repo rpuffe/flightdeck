@@ -52,6 +52,17 @@ from the image (the container never invokes them), verified clean with a
 local trivy scan, repushed, green. Candidate CONVENTIONS.md addition:
 "strip package managers from runtime images."
 
+### 6. Preflight broke on schema-legal env values (v0.2.0 cold rerun)
+The rerun agent's `make preflight` failed at health-check: the Makefile
+accumulated `-e $k=$v` docker args in an unquoted string, so an env value
+with a space (`GREETING: "tasks api"` — perfectly legal per the schema) was
+shell-split, and docker parsed a fragment as the image name. The agent
+worked around it app-side (space-free value); the real defect was
+platform-side. **Fix:** `set -- "$@" -e "$k=$v"` positional-parameter
+quoting in the template Makefile, verified against a spacey value. Lesson:
+the validation tool must accept everything the schema accepts — anything
+narrower is a second, undocumented contract.
+
 ## Stage 3 result
 
 Cold Sonnet agent, two documents (APP_SPEC.md + CONVENTIONS.md), template
@@ -60,3 +71,17 @@ including the failed pipeline iteration and its diagnosis. Goal was < 15
 minutes. The agent never touched main.tf or ci.yml, used the manifest env
 contract correctly (GREETING), and verified the deployed API against the
 spec with curl before reporting done.
+
+## v0.2.0 contract-as-tool rerun (same spec, fresh cold agent, `tasks` app)
+
+Identical protocol against the restructured contract (AGENTS.md index +
+docs/ + schema + `make preflight`): **6m38s spec-to-verified-URL, zero CI
+failures** (vs 8m18s and one CI failure on the monolith). What changed the
+outcome wasn't doc size — the agent read all four docs anyway for a
+full-app build — it was `make preflight`: the one failure this run
+(entry 6) surfaced locally in seconds instead of costing a ~5-minute CI
+round-trip, and the npm-strip lesson encoded in docs/dockerfile.md was
+applied proactively instead of being rediscovered. Progressive disclosure
+should pay off more on narrow tasks (a config tweak needs one doc, not the
+monolith); the measured v0.2.0 wins are local feedback speed and encoded
+lessons.

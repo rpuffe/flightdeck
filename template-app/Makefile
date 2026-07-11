@@ -104,17 +104,17 @@ build-image:
 health-check:
 	@port=$$(yq '.port' $(MANIFEST)); \
 	hc=$$(yq '.healthcheck' $(MANIFEST)); \
-	envargs=""; \
+	set --; \
 	if [ "$$(yq '.env' $(MANIFEST))" != "null" ]; then \
 	  for k in $$(yq '.env | keys | .[]' $(MANIFEST)); do \
 	    v=$$(yq ".env.$$k" $(MANIFEST)); \
-	    envargs="$$envargs -e $$k=$$v"; \
+	    set -- "$$@" -e "$$k=$$v"; \
 	  done; \
 	fi; \
 	docker rm -f $(CONTAINER) >/dev/null 2>&1 || true; \
 	trap 'docker rm -f $(CONTAINER) >/dev/null 2>&1 || true' EXIT; \
 	echo "==> starting container"; \
-	docker run -d --name $(CONTAINER) -p $$port:$$port $$envargs $(IMAGE) >/dev/null || { \
+	docker run -d --name $(CONTAINER) -p $$port:$$port "$$@" $(IMAGE) >/dev/null || { \
 	  echo "container failed to start → see docs/contract.md"; \
 	  exit 1; \
 	}; \
@@ -158,15 +158,15 @@ scan:
 
 run: build-image
 	@port=$$(yq '.port' $(MANIFEST)); \
-	envargs=""; \
+	set --; \
 	if [ "$$(yq '.env' $(MANIFEST))" != "null" ]; then \
 	  for k in $$(yq '.env | keys | .[]' $(MANIFEST)); do \
 	    v=$$(yq ".env.$$k" $(MANIFEST)); \
-	    envargs="$$envargs -e $$k=$$v"; \
+	    set -- "$$@" -e "$$k=$$v"; \
 	  done; \
 	fi; \
 	echo "==> running on port $$port (ctrl-c to stop)"; \
-	docker run --rm -p $$port:$$port $$envargs --name $(CONTAINER) $(IMAGE)
+	docker run --rm -p $$port:$$port "$$@" --name $(CONTAINER) $(IMAGE)
 
 # Apps override this target with their own test command; the template has none.
 test:
