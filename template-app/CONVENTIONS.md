@@ -112,6 +112,10 @@ Practical consequence for you: choose current, slim base images
 upgrade OS packages in the Dockerfile (`apk upgrade --no-cache` /
 `apt-get upgrade -y`) — even current official images lag CVE fixes by days,
 and the gate fails on fixable HIGH/CRITICAL vulns before your code ever runs.
+Also strip package managers your container never invokes at runtime (npm,
+pip, etc.): their bundled dependencies carry CVEs too — npm's own
+node_modules inside `node:*-alpine` has failed this gate before. Scan
+locally before pushing if you can: `trivy image --severity HIGH,CRITICAL <tag>`.
 
 ## Worked example
 
