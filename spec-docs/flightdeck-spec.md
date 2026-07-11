@@ -197,11 +197,11 @@ image reference.
 - [x] **Exit criteria:** push to a new app repo → deployed with zero pipeline config
 
 ### Stage 3 — The AI loop (Weekend 2, Sunday)
-- [ ] Write a small app spec (todo API or similar)
-- [ ] Hand spec + CONVENTIONS.md to Claude Code; agent writes the app
-- [ ] Log every failure; patch platform or conventions per failure
-- [ ] Repeat until spec → URL works end-to-end
-- [ ] **Exit criteria:** the 15-minute demo works; failure log has entries
+- [x] Write a small app spec (todo API or similar)
+- [x] Hand spec + CONVENTIONS.md to Claude Code; agent writes the app
+- [x] Log every failure; patch platform or conventions per failure
+- [x] Repeat until spec → URL works end-to-end
+- [x] **Exit criteria:** the 15-minute demo works; failure log has entries
 
 ### Stage 4 — Cross-agent test (half day, weekend 3)
 - [ ] Same spec through Cursor and one other agent
