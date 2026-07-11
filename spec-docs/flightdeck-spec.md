@@ -166,6 +166,14 @@ needed and is gone (SSM injection lives in §11 v2); `image` is deliberately
 NOT a manifest field — CI computes it per build, apps never pin their own
 image reference.
 
+**v0.4.0 addition — `storage: s3` (optional).** The first post-v1 field,
+justified the same way: the arcade app spec (persistent high scores) needed
+durable state. When set, the platform creates a private encrypted bucket per
+environment, grants the task role access to exactly that bucket (its first
+and only permission), and injects `STORAGE_BUCKET` (a reserved env key).
+Absent = pre-v0.4.0 behavior, byte-identical. Healthchecks must never depend
+on storage; data is destroyed with the stack.
+
 ## 7. The agent contract — structure (v0.2.0, restructured from one CONVENTIONS.md)
 
 Redesigned after Stage 3 as a developer tool rather than a monolithic context
@@ -274,6 +282,16 @@ writeup gate was satisfied):**
   32-char target-group name limit).
 - No per-env manifest overrides in v0.3.0 — nothing has needed one yet
   (§6 rule applies to env features too).
+
+**Decided (2026-07-11, v0.4.0 — first stateful feature):**
+- `storage: s3` manifest field per §6's v0.4.0 note. S3 before RDS on
+  purpose: no networking, no credentials, no schema — the cheapest durable
+  state that proves the pattern (conditional resources + scoped task-role
+  grant + injected env). The RDS `database:` block (§11) inherits this shape
+  when something needs it.
+- Deploy role gets `s3:*` resource-scoped to `flightdeck-*-data-*` — the
+  pattern cannot match the tfstate bucket; enumerating thirty bucket
+  sub-resource actions adds noise, not safety.
 - Tracking = GitHub Issues + one Milestone per Stage on rpuffe/flightdeck.
 - Stage 3 demo app = agent's choice of language (the language-agnosticism IS
   the thesis).

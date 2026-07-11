@@ -313,6 +313,22 @@ data "aws_iam_policy_document" "deploy_permissions" {
     }
   }
 
+  # --- App data buckets (manifest `storage: s3`, v0.4.0) ---
+
+  # Resource-scoped wildcard on purpose: terraform reads every bucket
+  # sub-resource (versioning, encryption, ACLs, CORS, lifecycle, ...) on
+  # refresh, and enumerating ~30 Get*/Put* actions adds noise, not safety.
+  # The *-data-* pattern cannot match the tfstate bucket, so state stays
+  # governed by the narrower statements below.
+  statement {
+    sid     = "AppDataBuckets"
+    actions = ["s3:*"]
+    resources = [
+      "arn:aws:s3:::flightdeck-*-data-*",
+      "arn:aws:s3:::flightdeck-*-data-*/*",
+    ]
+  }
+
   # --- Terraform state (S3 backend, native lockfile) ---
 
   statement {
