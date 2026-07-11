@@ -2,10 +2,12 @@
 #
 #   uses: rpuffe/flightdeck/.github/workflows/deploy.yml@<tag>
 #
-# The nested `./.github/workflows/...` references below resolve inside THIS
-# repo at the same ref the caller pinned — so build-scan-push and
-# terraform-plan-apply version together with that one tag, and apps upgrade
-# the whole pipeline by bumping it.
+# The nested references below MUST be fully qualified and pinned to this
+# repo's own release tag: when a reusable workflow is called cross-repo,
+# GitHub resolves `./` local references against the CALLING repo (where they
+# don't exist) — discovered the hard way in the v0.1.0 exit test.
+# RELEASE CHORE: bump these @refs (and template-app's two refs) to the new
+# tag in the same commit that gets tagged.
 name: deploy
 
 on:
@@ -22,14 +24,14 @@ on:
 
 jobs:
   build:
-    uses: ./.github/workflows/build-scan-push.yml
+    uses: rpuffe/flightdeck/.github/workflows/build-scan-push.yml@v0.1.1
     with:
       aws-role-arn: ${{ inputs.aws-role-arn }}
       aws-region: ${{ inputs.aws-region }}
 
   deploy:
     needs: build
-    uses: ./.github/workflows/terraform-plan-apply.yml
+    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.1.1
     with:
       image: ${{ needs.build.outputs.image }}
       aws-role-arn: ${{ inputs.aws-role-arn }}
