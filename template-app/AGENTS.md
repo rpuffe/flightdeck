@@ -10,6 +10,9 @@ Terraform, or DNS.
 **Never edit `main.tf` or `.github/workflows/ci.yml`.** Both are pinned
 platform boilerplate; editing either takes the app off the platform.
 
+**`make upgrade` refreshes every platform-owned file to the latest platform
+release** (see `docs/pipeline.md`); never hand-edit platform files.
+
 **The manifest is `app-manifest.yaml`**, validated against
 `app-manifest.schema.json` — let `make preflight` catch field-level mistakes.
 

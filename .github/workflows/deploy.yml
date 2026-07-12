@@ -6,8 +6,9 @@
 # repo's own release tag: when a reusable workflow is called cross-repo,
 # GitHub resolves `./` local references against the CALLING repo (where they
 # don't exist) — discovered the hard way in the v0.1.0 exit test.
-# RELEASE CHORE: bump these @refs (and template-app's two refs) to the new
-# tag in the same commit that gets tagged.
+# RELEASE CHORE, all in the commit that gets tagged: bump the @refs here and
+# in promote.yml, template-app's ci.yml refs and main.tf ?ref=, and write the
+# new tag into template-app/.flightdeck-version (make upgrade relies on it).
 #
 # Push to main deploys dev. Prod is reached only via promote.yml on v* tags —
 # never by rebuilding here (spec §5a: build once, promote the same image).
@@ -31,14 +32,14 @@ on:
 
 jobs:
   build:
-    uses: rpuffe/flightdeck/.github/workflows/build-scan-push.yml@v0.4.0
+    uses: rpuffe/flightdeck/.github/workflows/build-scan-push.yml@v0.5.0
     with:
       aws-role-arn: ${{ inputs.aws-role-arn }}
       aws-region: ${{ inputs.aws-region }}
 
   deploy:
     needs: build
-    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.4.0
+    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.5.0
     with:
       image: ${{ needs.build.outputs.image }}
       environment: ${{ inputs.environment }}

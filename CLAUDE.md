@@ -14,6 +14,8 @@ via Terraform, reusable GitHub Actions, and an `app-manifest.yaml` contract.
 - `make stop SVC=<name>` / `make start SVC=<name>` — scale one service 0/1
 - `make stop-all` / `make start-all` — the overnight off-switch (deliberate
   drift: any service's next deploy restores desired=1)
+- `make new-app NAME=<name>` — scaffold a new app repo from `template-app/`
+  and register it in the apps list (does not run `gh`, apply, or push)
 
 ## Binding conventions
 

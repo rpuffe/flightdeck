@@ -66,7 +66,9 @@ built, documented, and presented.
 - No multi-language build matrix. Containerized web service; if it builds a Docker
   image and answers a health check, it qualifies.
 - No escape hatches. Deviate from the path = you're off the platform. Deliberate.
-- No day-2 operations (upgrades, dashboards beyond basic alarms). Named future work.
+- No day-2 operations (upgrades, dashboards beyond basic alarms). Named future
+  work. (App-upgrade tooling graduated in v0.5.0 by owner decision — see §10;
+  the rest of day-2 stays parked.)
 
 ## 5. Architecture
 
@@ -292,6 +294,26 @@ writeup gate was satisfied):**
 - Deploy role gets `s3:*` resource-scoped to `flightdeck-*-data-*` — the
   pattern cannot match the tfstate bucket; enumerating thirty bucket
   sub-resource actions adds noise, not safety.
+
+**Decided (2026-07-11, v0.5.0 — app lifecycle, graduating §4's "upgrades"
+by owner decision):**
+- `make new-app NAME=x` (platform repo): scaffold + manifest name + git init
+  + registry append. Deliberately does NOT run gh repo create or terraform
+  apply — externally-visible actions stay explicit.
+- `make upgrade [TAG=x]` (app repos): fetches the release tarball and
+  replaces every platform-owned file; the template at a tag pins that tag,
+  so refs bump as a side effect of file replacement — one operation, no
+  skew. Refuses on ANY uncommitted state (tracked or untracked) under
+  replaced paths, with commit-or-stash wording. Warns on manifest fields the
+  target schema doesn't know (downgrade safety). Never commits.
+- `.flightdeck-version` records the contract version; preflight warns (not
+  fails) when it disagrees with main.tf's pinned ref.
+- App test commands move from the Makefile to an app-owned `test.sh` —
+  every platform-shipped file becomes whole-file replaceable.
+- One-time bootstrap for pre-v0.5.0 apps (no upgrade target yet): curl the
+  tagged Makefile, then `make upgrade` — documented in docs/pipeline.md.
+- Design was subagent-reviewed before build (GO WITH CHANGES; all six
+  findings incorporated, including a verified tag-discovery bug).
 - Tracking = GitHub Issues + one Milestone per Stage on rpuffe/flightdeck.
 - Stage 3 demo app = agent's choice of language (the language-agnosticism IS
   the thesis).

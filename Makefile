@@ -26,7 +26,8 @@ APP_DOMAIN := fd.robertpuffe.com
 
 .PHONY: fmt validate plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
-        ps stop start stop-all start-all
+        ps stop start stop-all start-all \
+        new-app
 
 # --- Service operations ------------------------------------------------------
 # Scale operations are deliberate drift: terraform state keeps desired_count=1,
@@ -134,3 +135,41 @@ destroy-bootstrap:
 	$(TF) -chdir=$(BOOTSTRAP) state pull > $(BOOTSTRAP)/terraform.tfstate
 	$(TF) -chdir=$(BOOTSTRAP) init -input=false -backend=false -reconfigure
 	$(TF) -chdir=$(BOOTSTRAP) destroy
+
+# --- App onboarding ----------------------------------------------------------
+# Scaffolds a new app repo from template-app/ as a sibling of this checkout
+# and registers it in the apps list. Deliberately does NOT run gh, apply
+# terraform, or push anything — those are separate, deliberate steps (see
+# NEXT STEPS below): repo creation and infra applies are deliberate actions,
+# scaffolding is the mechanical part.
+new-app:
+	@test -n "$(NAME)" || { echo "usage: make new-app NAME=<name>"; exit 1; }
+	@echo "$(NAME)" | grep -Eq '^[a-z][a-z0-9-]{0,15}$$' || { \
+		echo "error: NAME must match ^[a-z][a-z0-9-]{0,15}\$$ — lowercase," \
+		     "start with a letter, hyphens ok, max 16 chars (dev stacks" \
+		     "append \"-dev\", so this leaves headroom under the 32-char" \
+		     "target-group name limit)"; \
+		exit 1; \
+	}
+	@[ ! -e ../$(NAME) ] || { echo "error: ../$(NAME) already exists"; exit 1; }
+	@! grep -q '"$(NAME)"' $(BOOTSTRAP)/variables.tf || { \
+		echo "error: $(NAME) is already in the apps registry ($(BOOTSTRAP)/variables.tf)"; \
+		exit 1; \
+	}
+	cp -R template-app ../$(NAME)
+	yq -i '.name = "$(NAME)"' ../$(NAME)/app-manifest.yaml
+	git -C ../$(NAME) init -b main
+	git -C ../$(NAME) add -A
+	git -C ../$(NAME) commit -m "flightdeck template"
+	sed -i '' '/default[[:space:]]*=[[:space:]]*\[/ s/\]$$/, "$(NAME)"]/' $(BOOTSTRAP)/variables.tf
+	$(TF) -chdir=$(BOOTSTRAP) fmt
+	$(TF) -chdir=$(BOOTSTRAP) init -input=false -backend=false > /dev/null
+	$(TF) -chdir=$(BOOTSTRAP) validate
+	@echo ""
+	@echo "Scaffolded ../$(NAME) and registered it in $(BOOTSTRAP)/variables.tf."
+	@echo "NEXT STEPS (manual — repo creation and infra applies are deliberate"
+	@echo "actions, scaffolding is the mechanical part):"
+	@echo "  1) review the registry diff, then: make bootstrap   (creates the ECR repo for $(NAME))"
+	@echo "  2) gh repo create $(NAME) --public --source ../$(NAME)"
+	@echo "  3) gh variable set FLIGHTDECK_DEPLOY_ROLE_ARN --repo <owner>/$(NAME) --body \"\$$(terraform -chdir=bootstrap output -raw deploy_role_arn)\""
+	@echo "  4) git -C ../$(NAME) push -u origin main   ->  https://$(NAME)-dev.$(APP_DOMAIN)"

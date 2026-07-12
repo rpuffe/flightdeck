@@ -70,3 +70,40 @@ tag that same SHA.
   is unset locally, same as any environment where storage isn't reachable.
   The healthcheck must pass without it; degrade to memory (`docs/contract.md`,
   Storage section).
+
+## Upgrading the platform version
+
+The template at any given tag pins itself: `main.tf` in a `vX.Y.Z` checkout
+references the `fargate-service` module at `ref=vX.Y.Z`, and the contract
+files (this doc included) are the ones that shipped with that tag. So
+refreshing to a newer (or older) platform release is one operation —
+`make upgrade` — not two: it replaces every platform-owned file (`AGENTS.md`,
+`CLAUDE.md`, `docs/`, `app-manifest.schema.json`, `main.tf`,
+`.github/workflows/ci.yml`, `.flightdeck-version`, `Makefile`) and bumps the
+pinned module ref in the same step, from the same tag.
+
+```
+make upgrade            # latest published vX.Y.Z tag
+make upgrade TAG=v0.4.0 # a specific tag — including downgrades, for recovery
+```
+
+**Dirty-tree rule**: `make upgrade` refuses to run if any platform-owned path
+has uncommitted changes (tracked or untracked — this also catches stray files
+an agent dropped under `docs/`). It never discards work; commit or stash
+first, then re-run.
+
+**Review, then commit yourself**: `make upgrade` never commits. It prints the
+previous version, the new tag, and the exact file list it touched. Always
+follow with `git diff && git status` to review before committing — treat it
+like any dependency bump.
+
+**One-time bootstrap for apps created before v0.5.0** (no `upgrade` target
+yet in their Makefile):
+
+```
+curl -fsSL https://raw.githubusercontent.com/rpuffe/flightdeck/v0.5.0/template-app/Makefile -o Makefile && make upgrade
+```
+
+This pulls just enough of the new Makefile to gain the `upgrade` target, then
+`make upgrade` takes over and replaces the rest of the platform-owned set
+normally.

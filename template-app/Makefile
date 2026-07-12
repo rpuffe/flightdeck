@@ -10,8 +10,9 @@ MANIFEST := app-manifest.yaml
 SCHEMA   := app-manifest.schema.json
 IMAGE    := flightdeck-preflight:latest
 CONTAINER := flightdeck-preflight-run
+REPO_URL := https://github.com/rpuffe/flightdeck
 
-.PHONY: preflight run test check-tools validate-manifest build-image health-check scan
+.PHONY: preflight run test check-tools validate-manifest build-image health-check scan upgrade
 
 preflight: check-tools validate-manifest build-image health-check scan
 	@echo "preflight clean — push to main to deploy"
@@ -23,6 +24,15 @@ preflight: check-tools validate-manifest build-image health-check scan
 check-tools:
 	@command -v docker >/dev/null 2>&1 || { echo "docker not found — install Docker Desktop → see docs/contract.md"; exit 1; }
 	@command -v yq >/dev/null 2>&1 || { echo "yq not found — install: brew install yq → see docs/contract.md"; exit 1; }
+	@pinned=$$(grep -o 'ref=v[0-9.]*' main.tf | sed 's/^ref=//'); \
+	if [ -f .flightdeck-version ]; then \
+	  contract=$$(cat .flightdeck-version); \
+	  if [ -n "$$pinned" ] && [ "$$contract" != "$$pinned" ]; then \
+	    echo "WARNING: contract files are $$contract but main.tf pins $$pinned — run make upgrade"; \
+	  fi; \
+	else \
+	  echo "note: no .flightdeck-version (pre-v0.5.0 contract) — run make upgrade to refresh"; \
+	fi
 
 # ---------------------------------------------------------------------------
 # 2. Manifest validation (mirrors app-manifest.schema.json)
@@ -179,6 +189,79 @@ run: build-image
 	echo "==> running on port $$port (ctrl-c to stop)"; \
 	docker run --rm -p $$port:$$port "$$@" --name $(CONTAINER) $(IMAGE)
 
-# Apps override this target with their own test command; the template has none.
+# App test logic lives in test.sh, NOT here — the Makefile is 100%
+# platform-owned and whole-file replaceable by `make upgrade`.
 test:
-	@echo "no test command defined for this app — override the 'test' target in this Makefile if your app has one → see docs/example.md"
+	@if [ -f test.sh ]; then \
+	  sh ./test.sh; \
+	else \
+	  echo "no test.sh found for this app — create test.sh at the repo root with your test command → see docs/example.md"; \
+	fi
+
+# ---------------------------------------------------------------------------
+# 6. Upgrade — refresh platform-owned files to a flightdeck release
+# ---------------------------------------------------------------------------
+#
+# make upgrade            — upgrades to the latest published vX.Y.Z tag
+# make upgrade TAG=v0.4.0 — upgrades (or downgrades) to a specific tag
+#
+# Replaces the platform-owned file set below from the tagged release and
+# never touches app-owned files (app-manifest.yaml, Dockerfile, test.sh,
+# source code). Refuses to run over uncommitted changes under those paths.
+# Never commits — review with git diff/git status and commit yourself.
+
+upgrade:
+	@tag="$(TAG)"; \
+	if [ -z "$$tag" ]; then \
+	  echo "==> no TAG given, resolving latest release from $(REPO_URL)"; \
+	  tag=$$(git ls-remote --tags $(REPO_URL).git 'v*' | grep -v '\^{}' | awk -F/ '{print $$NF}' | sort -V | tail -1); \
+	  if [ -z "$$tag" ]; then \
+	    echo "could not resolve latest tag from $(REPO_URL) — pass TAG=vX.Y.Z explicitly"; \
+	    exit 1; \
+	  fi; \
+	fi; \
+	echo "==> upgrading platform-owned files to $$tag"; \
+	for p in AGENTS.md CLAUDE.md docs app-manifest.schema.json main.tf .github/workflows/ci.yml .flightdeck-version Makefile; do \
+	  if [ -n "$$(git status --porcelain -- "$$p" 2>/dev/null)" ]; then \
+	    echo "uncommitted changes under platform-owned paths — commit or stash them first (do NOT discard; make upgrade never destroys work)"; \
+	    exit 1; \
+	  fi; \
+	done; \
+	if [ -f .flightdeck-version ]; then prev=$$(cat .flightdeck-version); else prev="pre-v0.5.0"; fi; \
+	tmpdir=$$(mktemp -d); \
+	trap 'rm -rf "$$tmpdir"' EXIT; \
+	echo "==> fetching $$tag"; \
+	curl -fsSL "$(REPO_URL)/archive/refs/tags/$$tag.tar.gz" -o "$$tmpdir/release.tar.gz" || { \
+	  echo "failed to fetch $$tag from $(REPO_URL) — check the tag exists and network is reachable"; \
+	  exit 1; \
+	}; \
+	tar -xzf "$$tmpdir/release.tar.gz" -C "$$tmpdir" || { echo "failed to extract $$tag archive"; exit 1; }; \
+	src=$$(find "$$tmpdir" -type d -path '*/template-app' | head -1); \
+	if [ -z "$$src" ]; then \
+	  echo "could not find template-app/ inside $$tag archive"; \
+	  exit 1; \
+	fi; \
+	if [ -f "$$src/app-manifest.schema.json" ] && [ -f $(MANIFEST) ]; then \
+	  allowed=" $$(yq '.properties | keys | .[]' "$$src/app-manifest.schema.json" | tr -d '"' | tr '\n' ' ')"; \
+	  for k in $$(yq 'keys | .[]' $(MANIFEST)); do \
+	    case "$$allowed" in \
+	      *" $$k "*) : ;; \
+	      *) echo "WARNING: your manifest uses '$$k' which $$tag's schema does not define — preflight will fail until you remove it or pick a newer tag" ;; \
+	    esac; \
+	  done; \
+	fi; \
+	cp -f "$$src/AGENTS.md" AGENTS.md; \
+	cp -f "$$src/CLAUDE.md" CLAUDE.md; \
+	rm -rf docs && cp -R "$$src/docs" docs; \
+	cp -f "$$src/app-manifest.schema.json" app-manifest.schema.json; \
+	cp -f "$$src/main.tf" main.tf; \
+	mkdir -p .github/workflows && cp -f "$$src/.github/workflows/ci.yml" .github/workflows/ci.yml; \
+	if [ -f "$$src/.flightdeck-version" ]; then \
+	  cp -f "$$src/.flightdeck-version" .flightdeck-version; \
+	else \
+	  echo "$$tag" > .flightdeck-version; \
+	fi; \
+	cp -f "$$src/Makefile" Makefile; \
+	echo "==> upgraded: $$prev -> $$tag"; \
+	echo "files replaced: AGENTS.md CLAUDE.md docs app-manifest.schema.json main.tf .github/workflows/ci.yml .flightdeck-version Makefile"; \
+	echo "review with: git diff && git status, then commit. make upgrade never commits."
