@@ -101,7 +101,10 @@ like any dependency bump.
 yet in their Makefile):
 
 ```
-curl -fsSL https://raw.githubusercontent.com/rpuffe/flightdeck/v0.5.0/template-app/Makefile -o Makefile && make upgrade
+curl -fsSL https://raw.githubusercontent.com/rpuffe/flightdeck/v0.5.0/template-app/Makefile -o Makefile
+git add Makefile && git commit -m "bootstrap v0.5.0 Makefile"
+make upgrade
+
 ```
 
 This pulls just enough of the new Makefile to gain the `upgrade` target, then
