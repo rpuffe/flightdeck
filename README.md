@@ -1,7 +1,9 @@
 # flightdeck
 
-flightdeck is a golden path from a plain-language app spec to a production-grade
-AWS deployment: Terraform modules, reusable GitHub Actions, and an
+[![platform-ci](https://github.com/rpuffe/flightdeck/actions/workflows/platform-ci.yml/badge.svg)](https://github.com/rpuffe/flightdeck/actions/workflows/platform-ci.yml)
+
+flightdeck is a production-minded golden path from a plain-language app spec to
+an AWS deployment: Terraform modules, reusable GitHub Actions, and an
 `app-manifest.yaml` contract that a coding agent can satisfy without ever
 touching AWS, Terraform, or DNS. Three apps built this way are live right now —
 [todo](https://todo.fd.robertpuffe.com), [tasks](https://tasks.fd.robertpuffe.com),
@@ -17,7 +19,16 @@ contract, the platform grew a full pipeline — pull requests run credential-fre
 checks, pushes to `main` deploy a dev environment, version tags promote the
 exact same image to prod — plus optional per-app S3 storage and a one-command
 lifecycle for both the platform and app repos (`make new-app`, `make upgrade`).
-Current tag: **v0.5.0**.
+Latest tagged release: **v0.5.0**. `main` contains the next unreleased
+hardening release; app repos remain on their pinned tag until that release is
+cut and deliberately adopted.
+
+Here, `prod` is a build-once promotion target, not a claim of turnkey
+production readiness. Flightdeck deliberately demonstrates production-shaped
+controls in a low-cost personal account; the
+[threat model](spec-docs/threat-model.md) states the trust boundaries,
+accepted risks, and controls a business production environment would still
+need.
 
 (Live-app availability varies — services get scaled to zero between demos via
 `make stop`/`make stop-all`, and the next deploy silently restores them.
@@ -33,18 +44,18 @@ anywhere:
 flowchart LR
     subgraph M["push to main → dev"]
         A["App repo<br/>main branch"] --> B["deploy.yml @ pinned tag"]
-        B --> C["build-scan-push.yml<br/>build → Trivy image scan<br/>→ push to ECR, tagged by SHA"]
+        B --> C["build-scan-push.yml<br/>build → Trivy image scan<br/>→ push to dev ECR, tagged by SHA"]
         C --> D["terraform-plan-apply.yml<br/>Trivy IaC scan → plan → apply"]
         D --> E["dev service<br/>https://&lt;name&gt;-dev.fd.robertpuffe.com"]
     end
 
     subgraph T["tag v* → prod"]
         F["same commit,<br/>tagged v1.0.0"] --> G["deploy.yml @ pinned tag"]
-        G --> H["terraform-plan-apply.yml<br/>look up main's image for that SHA<br/>— no rebuild, no rescan"]
+        G --> H["promote.yml<br/>copy the exact OCI manifest to prod ECR<br/>— verify identical digest, no rebuild"]
         H --> I["prod service<br/>https://&lt;name&gt;.fd.robertpuffe.com"]
     end
 
-    C -. same image SHA .-> H
+    C -. same image digest .-> H
 ```
 
 Pull requests never reach either path — OIDC trust is scoped to
@@ -117,7 +128,7 @@ outcome (see Measured results below).
 
 The contract extends past day-1 setup into day-2 lifecycle, still as a
 Makefile target rather than a new tool (v0.5.0): `make new-app NAME=x` in the
-platform repo scaffolds a conforming app repo and registers it in the ECR
+platform repo scaffolds a conforming app repo and registers its dev/prod ECR
 bootstrap registry in one command; `make upgrade` in an app repo replaces
 every platform-owned file with the latest tagged release in one operation —
 refs bump as a side effect, since the template at a given tag pins itself —
@@ -136,7 +147,7 @@ any dependency bump.
    `template-app/`, sets its manifest name, `git init`s it, and registers it
    in the `apps` list in `bootstrap/variables.tf` — one command, replacing
    what used to be manual copying. It prints the remaining deliberate steps:
-   `make bootstrap` (creates the app's ECR repo), `gh repo create`, and
+   `make bootstrap` (creates the app's dev/prod ECR repos), `gh repo create`, and
    setting one repo variable (`FLIGHTDECK_DEPLOY_ROLE_ARN`).
 3. **Build the app**: write the code yourself, or hand a coding agent the app
    spec plus the repo — the contract (`AGENTS.md`, schema, `make preflight`)
@@ -148,13 +159,22 @@ any dependency bump.
 
 ## Security defaults
 
-- **OIDC only** — the deploy role is assumed via GitHub's OIDC federation
-  (`bootstrap/oidc.tf`); no long-lived AWS access keys exist anywhere, in any
-  repo or secret store.
-- **Credential-free PR checks** — OIDC trust covers only `refs/heads/main` and
-  `refs/tags/v*`; a pull request runs the full build + scan + fmt/validate
-  gate with zero cloud credentials, so unmerged code can never reach AWS,
-  deploy anything, or read Terraform state.
+These are secure defaults within Flightdeck's deliberately narrow personal-
+platform scope, not a complete production security program. See the
+[threat model](spec-docs/threat-model.md) for residual risk and required
+hardening.
+
+- **Per-app OIDC roles** — each registered repository gets its own deploy role
+  (`bootstrap/oidc.tf`), trusted only for that exact repository's `main` branch
+  and `v*` tags. No long-lived AWS access keys exist in any repo or secret
+  store.
+- **Credential-free PR checks** — pull requests run the full build + scan +
+  fmt/validate gate with zero cloud credentials, so unmerged code cannot reach
+  AWS, deploy anything, or read Terraform state.
+- **Bounded IAM + isolated state writes** — app workflows can create only their
+  own task and execution roles, with a mandatory app-specific permissions
+  boundary. Each deploy role can write only its app's dev/prod state keys and
+  has read-only access to the bootstrap outputs required by the module.
 - **Trivy image + IaC gates, HIGH/CRITICAL only** — a deliberate, documented
   threshold (checkov's open-source tier can't filter by severity; Trivy can).
   The image gate isn't theoretical: it caught a real fixable CVE
@@ -173,6 +193,28 @@ any dependency bump.
   targets flightdeck's own Terraform state only, never a tag-based or
   account-wide sweep, so it can't reach a pre-existing resource even by
   accident.
+
+### Adopting the next hardening release
+
+The IAM and ECR split on `main` are intentionally unreleased. When the next
+platform tag is cut, migrate one registered app at a time:
+
+1. Apply bootstrap to create the per-app deploy roles, permissions boundaries,
+   managed storage policies, and dev ECR repositories. This also removes the
+   shared legacy role, so coordinate the repository-variable updates below as
+   one maintenance window; running tasks are unaffected, but old CI role ARNs
+   stop working.
+2. Set `FLIGHTDECK_DEPLOY_ROLE_ARN` in that app repository to
+   `arn:aws:iam::<account-id>:role/flightdeck-deploy-<app>`.
+3. Run `make upgrade TAG=<new-release>` in the app repository and deploy dev
+   once. Terraform attaches the required boundary to the existing roles and
+   replaces the legacy inline storage grant with the scoped managed policy.
+4. Verify every existing dev/prod task and execution role reports the expected
+   `PermissionsBoundary` with `aws iam get-role`, then promote normally.
+
+Do not remove an app from the bootstrap registry until its dev and prod stacks
+have been destroyed; their task roles still reference bootstrap-owned boundary
+and storage policies.
 
 ## Measured results
 

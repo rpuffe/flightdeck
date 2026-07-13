@@ -5,7 +5,7 @@ notes; keep out of anything public (see CLAUDE.local.md — no employer names,
 resume/publish/recording framing in committed files, commits, or issues).
 
 ## What flightdeck is
-A golden-path platform: a plain-language app spec → production-grade AWS
+A golden-path platform: a plain-language app spec → production-minded AWS
 deployment via Terraform + reusable GitHub Actions + an `app-manifest.yaml`
 contract. A coding agent (or a human) satisfies the contract; the platform
 does build/scan/deploy/serve. Source of truth: `spec-docs/flightdeck-spec.md`
@@ -90,23 +90,16 @@ granted via a RESOURCE-BASED policy ON the Lambda — aws_lambda_permission
 user; §5b-clean). Account Lambda concurrency quota ~10 blocks reserved-
 concurrency caps (#33).
 
-## THE OPEN BUG (top priority next session): auto-wake deadlock — issue #35
-Auto-wake-on-direct-visit was built and SHELVED same night. The rule-flip
-approach deadlocks: stopping flipped an app's ALB rule to the scaler TG, which
-detaches the app's own TG; ALB only health-checks ATTACHED target groups, so the
-flip-back-when-healthy condition never fires → infinite warming loop; every stop
-stranded another app (had to manually restore 5). SAFETY REVERT applied (commit
-8d6d99d): stop path no longer flips; flip helpers + `_handle_app_host` left
-DORMANT/SHELVED in scaler.py. A directly-visited sleeping app now returns ALB
-503 (pre-feature behavior). Redesign options in #35: (1) Lambda in VPC directly
-probing task health [most correct], (2) flip-on-ECS-running + fast TG health
-check + tuned warming-refresh [pragmatic], (3) Lambda-as-proxy, no flip. LESSON:
-live-test stateful ALB/health features end-to-end (stop→visit→recover→verify
-rule flipped back) — unit tests + design review can't see ALB's attached-only
-health-check behavior.
+## Auto-wake status — issue #35
+The failed listener-rule flip implementation has been removed rather than left
+dormant in the scaler. A directly visited sleeping app returns the ALB's normal
+503 until it is explicitly started from `wake.fd.robertpuffe.com` or `make
+start`. Issue #35 remains a future design decision, not a partially active
+feature. Any redesign must be live-tested stop→visit→recover end to end because
+ALB health checks run only for attached target groups.
 
 ## Open issues
-- #35 auto-wake deadlock redesign (TOP — see above)
+- #35 optional direct-visit auto-wake redesign (see above)
 - #32 scale-from-zero umbrella (superseded-in-detail by #35)
 - #33 restore scaler reserved-concurrency after a Lambda quota increase
 - #18 / #19 Stage 4: same spec through Cursor + one other agent → README pass/fail
