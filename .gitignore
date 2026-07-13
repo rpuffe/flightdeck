@@ -17,3 +17,6 @@ crash.log
 
 # Transient first-run artifact from make bootstrap/plan-bootstrap
 backend.tf.off
+
+# Python bytecode (scaler Lambda source lives in bootstrap/lambda)
+__pycache__/
