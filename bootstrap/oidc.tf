@@ -438,10 +438,11 @@ data "aws_iam_policy_document" "deploy_identity_permissions" {
     ])
   }
 
-  # IAM exposes iam:PermissionsBoundary for role deletion and managed-policy
-  # detachment, but not for TagRole/UntagRole or PassRole. Keep tagging exact-
-  # resource-scoped here; boundary removal is never granted, arbitrary inline
-  # writes are never granted, and managed-policy attachment is allowlisted.
+  # AWS's IAM Service Authorization Reference explicitly lists
+  # iam:PermissionsBoundary for DeleteRole and DetachRolePolicy, but not for
+  # TagRole/UntagRole or PassRole. Keep tagging exact-resource-scoped here;
+  # boundary removal is never granted, arbitrary inline writes are never
+  # granted, and managed-policy attachment is allowlisted.
   statement {
     sid = "TaskRoleTagging"
     actions = [
