@@ -124,7 +124,9 @@ def _handle_action_event(event):
         worker = _stop_service if action == "stop-all" else _start_service
         results = {name: worker(name) for name in names}
         status = "ok" if all(result == "ok" for result in results.values()) else "error"
-        return {"status": status, "action": action, "results": results}
+        response = {"status": status, "action": action, "results": results}
+        print(json.dumps({"event_type": "action_result", **response}))
+        return response
 
     if action in ("start", "stop"):
         if not services:
@@ -133,7 +135,9 @@ def _handle_action_event(event):
         worker = _stop_service if action == "stop" else _start_service
         results = {name: worker(name) for name in services}
         status = "ok" if all(result == "ok" for result in results.values()) else "error"
-        return {"status": status, "action": action, "results": results}
+        response = {"status": status, "action": action, "results": results}
+        print(json.dumps({"event_type": "action_result", **response}))
+        return response
 
     print(json.dumps({"warning": "unknown action, no changes made", "event": event}))
     return {"status": "ignored", "reason": "unknown action"}

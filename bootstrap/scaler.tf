@@ -95,6 +95,18 @@ resource "aws_cloudwatch_log_group" "scaler" {
   retention_in_days = 30
 }
 
+resource "aws_cloudwatch_log_metric_filter" "scaler_action_errors" {
+  name           = "${local.name_prefix}-scaler-action-errors"
+  log_group_name = aws_cloudwatch_log_group.scaler.name
+  pattern        = "{ $.event_type = \"action_result\" && $.status = \"error\" }"
+
+  metric_transformation {
+    name      = "ActionErrors"
+    namespace = "Flightdeck/Scaler"
+    value     = "1"
+  }
+}
+
 resource "aws_lambda_function" "scaler" {
   function_name = "${local.name_prefix}-scaler"
   role          = aws_iam_role.scaler.arn
@@ -221,7 +233,7 @@ resource "aws_lambda_permission" "operator_invoke" {
   statement_id  = "AllowOperatorManualInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.scaler.function_name
-  principal     = data.aws_caller_identity.current.arn
+  principal     = data.aws_iam_session_context.current.issuer_arn
 }
 
 resource "aws_lb_target_group_attachment" "scaler" {

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import pathlib
 import sys
@@ -75,13 +76,20 @@ class ScalerTests(unittest.TestCase):
         self.assertEqual("error: denied", scaler._stop_service("bad"))
 
     def test_action_event_returns_error_when_any_service_fails(self):
-        with patch.object(scaler, "_start_service", side_effect=["ok", "error: denied"]):
+        with (
+            patch.object(scaler, "_start_service", side_effect=["ok", "error: denied"]),
+            patch("builtins.print") as log,
+        ):
             response = scaler._handle_action_event(
                 {"action": "start", "services": ["good", "bad"]}
             )
 
         self.assertEqual("error", response["status"])
         self.assertEqual({"good": "ok", "bad": "error: denied"}, response["results"])
+        result_log = json.loads(log.call_args_list[-1].args[0])
+        self.assertEqual("action_result", result_log["event_type"])
+        self.assertEqual("error", result_log["status"])
+        self.assertEqual(response["results"], result_log["results"])
 
     def test_action_event_validates_shape(self):
         missing = scaler._handle_action_event({"action": "stop"})
