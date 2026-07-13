@@ -17,13 +17,13 @@ variable "subdomain" {
 }
 
 variable "github_owner" {
-  description = "GitHub owner whose repos the OIDC deploy role trusts"
+  description = "GitHub owner containing the registered repositories trusted by their per-app OIDC deploy roles"
   type        = string
   default     = "rpuffe"
 }
 
 variable "apps" {
-  description = "THE app registry: platform-side onboarding is adding a name here (drives ECR repo-per-app) and re-applying bootstrap. Everything else is app-repo-side."
+  description = "THE app registry: adding a name here creates per-app IAM and dev/prod ECR resources when bootstrap is re-applied. Everything else is app-repo-side."
   type        = list(string)
   default     = ["ping", "todo", "tasks", "board", "golf"]
 }

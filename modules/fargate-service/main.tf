@@ -4,6 +4,7 @@
 # listener rules already route traffic) or ECR repos (bootstrap owns those).
 
 data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
 
 # environment = "prod" is unprefixed so existing prod stacks see an empty
 # diff; environment = "dev" gets a "-dev" suffix on every resource name,
@@ -48,8 +49,9 @@ data "aws_iam_policy_document" "ecs_tasks_assume" {
 }
 
 resource "aws_iam_role" "exec" {
-  name               = "flightdeck-${local.svc_name}-exec"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+  name                 = "flightdeck-${local.svc_name}-exec"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_assume.json
+  permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/flightdeck-${var.name}-task-boundary"
 }
 
 resource "aws_iam_role_policy_attachment" "exec" {
@@ -61,8 +63,9 @@ resource "aws_iam_role_policy_attachment" "exec" {
 # all (least privilege). Revisit once the manifest grows secrets/database
 # blocks (spec §11 roadmap) that need scoped IAM.
 resource "aws_iam_role" "task" {
-  name               = "flightdeck-${local.svc_name}-task"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+  name                 = "flightdeck-${local.svc_name}-task"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_assume.json
+  permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/flightdeck-${var.name}-task-boundary"
 }
 
 # ---------------------------------------------------------------------------
