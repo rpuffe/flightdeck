@@ -6,7 +6,7 @@
 
 # Only fetched when storage is on, so the default path makes no extra AWS
 # API call either.
-data "aws_caller_identity" "current" {
+data "aws_caller_identity" "storage" {
   count = var.storage == "s3" ? 1 : 0
 }
 
@@ -14,7 +14,7 @@ data "aws_caller_identity" "current" {
 # separate buckets automatically — environment data isolation for free.
 resource "aws_s3_bucket" "data" {
   count  = var.storage == "s3" ? 1 : 0
-  bucket = "flightdeck-${local.svc_name}-data-${data.aws_caller_identity.current[0].account_id}"
+  bucket = "flightdeck-${local.svc_name}-data-${data.aws_caller_identity.storage[0].account_id}"
 
   # Deliberate, mirrors bootstrap/state.tf: flightdeck is a teardown-first
   # demo platform. An app's data dies with its stack — that's stated loudly
@@ -46,29 +46,13 @@ resource "aws_s3_bucket_public_access_block" "data" {
   restrict_public_buckets = true
 }
 
-data "aws_iam_policy_document" "task_storage" {
-  count = var.storage == "s3" ? 1 : 0
-
-  statement {
-    sid       = "ListStorageBucket"
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.data[0].arn]
-  }
-
-  statement {
-    sid       = "ReadWriteStorageObjects"
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.data[0].arn}/*"]
-  }
-}
-
 # Milestone: this is the first permission the task role (main.tf) has ever
 # had — it's permissionless by design in v1 and stays that way unless the
 # manifest asks for storage. Even then, it can reach exactly its own
 # bucket, nothing else in the account.
-resource "aws_iam_role_policy" "task_storage" {
-  count  = var.storage == "s3" ? 1 : 0
-  name   = "flightdeck-${local.svc_name}-storage"
-  role   = aws_iam_role.task.id
-  policy = data.aws_iam_policy_document.task_storage[0].json
+resource "aws_iam_role_policy_attachment" "task_storage" {
+  count = var.storage == "s3" ? 1 : 0
+
+  role       = aws_iam_role.task.name
+  policy_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/flightdeck-${local.svc_name}-task-storage"
 }
