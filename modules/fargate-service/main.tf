@@ -113,6 +113,12 @@ resource "aws_ecs_task_definition" "app" {
       }
     }
   ])
+
+  # Register the new immutable revision before deregistering the old one so a
+  # failed service update retains an active rollback target.
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # ---------------------------------------------------------------------------

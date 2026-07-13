@@ -12,6 +12,9 @@ data "archive_file" "scaler" {
   type        = "zip"
   source_dir  = "${path.module}/lambda"
   output_path = "${path.module}/.terraform/archives/scaler.zip"
+  # Local test imports create ignored bytecode beside scaler.py. Excluding it
+  # keeps the deployment package hash independent of who ran tests last.
+  excludes = ["__pycache__"]
 }
 
 # ---------------------------------------------------------------------------

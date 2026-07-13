@@ -87,6 +87,19 @@ low account ceiling itself bounds concurrency for now; the cap returns
 with a quota increase (tracked). Lesson: hardening recommendations need
 checking against the account's actual quotas, not just the API.
 
+### 10. An API accepting an ARN does not mean IAM can scope to that ARN
+The first `golf` deployment under its per-app role failed while Terraform
+replaced the ECS task definition. The policy granted
+`ecs:DeregisterTaskDefinition` on the app's exact task-definition ARNs, but
+AWS authorizes that action only against `Resource: "*"`; the apparently
+least-privilege statement could never match. **Fix:** isolate the single
+unscoped action, constrain it to the configured region, document the residual
+cross-app availability risk, and create the replacement revision before
+deregistering the old one. Registration remains scoped to the app's exact
+task-definition families. Lesson: validate IAM resource support against the
+service authorization reference or policy simulator, not the API request
+shape.
+
 ## Stage 3 result
 
 Cold Sonnet agent, two documents (APP_SPEC.md + CONVENTIONS.md), template

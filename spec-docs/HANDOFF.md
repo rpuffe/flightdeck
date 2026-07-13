@@ -107,7 +107,7 @@ ALB health checks run only for attached target groups.
 - #30 Stage 5 exit: cold-reader test of the README
 
 ## Key files to read first in a new thread
-spec-docs/flightdeck-spec.md, spec-docs/failure-log.md (9 numbered entries + run
+spec-docs/flightdeck-spec.md, spec-docs/failure-log.md (10 numbered entries + run
 results — the hardening story), this file, bootstrap/scaler.tf +
 bootstrap/lambda/scaler.py (for #35), CLAUDE.md (commands + conventions).
 Memory: ~/.claude/.../memory/flightdeck-project-decisions.md has the full
