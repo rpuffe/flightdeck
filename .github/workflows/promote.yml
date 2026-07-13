@@ -63,6 +63,7 @@ jobs:
           source_digest=$(aws ecr describe-images --repository-name "$source_repo" --image-ids imageTag="$tag" --query 'imageDetails[0].imageDigest' --output text)
 
           if ! aws ecr describe-images --repository-name "$prod_repo" --image-ids imageTag="$tag" >/dev/null 2>&1; then
+            # The build workflow emits one platform image, not a multi-arch index.
             manifest=$(aws ecr batch-get-image \
               --repository-name "$source_repo" \
               --image-ids imageTag="$tag" \
