@@ -314,6 +314,23 @@ by owner decision):**
   tagged Makefile, then `make upgrade` — documented in docs/pipeline.md.
 - Design was subagent-reviewed before build (GO WITH CHANGES; all six
   findings incorporated, including a verified tag-discovery bug).
+
+**Decided (2026-07-12 — fleet cooling, second day-2 graduation by owner
+decision):**
+- One reusable scaler Lambda, two front doors: EventBridge Scheduler cron
+  (nightly stop-all, 23:30 America/Chicago) and an ALB wake endpoint at
+  wake.fd.robertpuffe.com riding the existing wildcard cert/alias — no API
+  Gateway, no new edge infrastructure.
+- The HTTP path is START-ONLY by construction: an open wake endpoint can at
+  worst keep services warm (bounded by the budget alarm), never cause an
+  outage. Stopping happens only via schedule, make targets, or direct
+  invoke.
+- Same drift semantics as the service-ops targets: terraform owns
+  desired_count=1; any deploy re-warms its service; the nightly cron
+  re-cools. "wake" becomes a reserved hostname.
+- Full scale-from-zero (auto-wake when a sleeping app's own URL is hit,
+  via listener-rule flipping) remains open on the tracker — the wake
+  endpoint is the deliberate 80% version.
 - Tracking = GitHub Issues + one Milestone per Stage on rpuffe/flightdeck.
 - Stage 3 demo app = agent's choice of language (the language-agnosticism IS
   the thesis).

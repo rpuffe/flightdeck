@@ -62,7 +62,11 @@ validate-manifest:
 	echo "$$name" | grep -Eq '^[a-z][a-z0-9-]{0,15}$$' || { \
 	  echo "name '$$name' is invalid — must match ^[a-z][a-z0-9-]{0,15}$$ (lowercase, starts with a letter, max 16 chars — dev stacks append \"-dev\", so this leaves room under the 32-char target-group name limit) → see docs/contract.md"; \
 	  exit 1; \
-	}
+	}; \
+	if [ "$$name" = "wake" ]; then \
+	  echo "name 'wake' is reserved for the platform scaler endpoint — choose a different name → see docs/contract.md"; \
+	  exit 1; \
+	fi
 	@port=$$(yq '.port' $(MANIFEST)); \
 	case "$$port" in \
 	  ''|*[!0-9]*) echo "port '$$port' is invalid — must be an integer → see docs/contract.md"; exit 1 ;; \

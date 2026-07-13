@@ -7,5 +7,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+
+    # Zips the scaler Lambda's source at plan time (bootstrap/scaler.tf).
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }

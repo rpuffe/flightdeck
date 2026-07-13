@@ -13,6 +13,11 @@ variable "name" {
     condition     = can(regex("^[a-z][a-z0-9-]{0,15}$", var.name))
     error_message = "name must be lowercase alphanumeric/hyphens, start with a letter, and be at most 16 characters long (dev stacks append \"-dev\", so this leaves room under the 32-char target-group name limit)."
   }
+
+  validation {
+    condition     = var.name != "wake"
+    error_message = "'wake' is reserved for the platform scaler endpoint."
+  }
 }
 
 variable "environment" {
