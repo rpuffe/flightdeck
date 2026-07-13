@@ -1,4 +1,4 @@
-# Flightdeck — Spec-to-Production Golden Path for AI-Generated Apps
+# Flightdeck — Production-Shaped Golden Path for AI-Generated Apps
 
 **Name:** flightdeck (rename is cheap if needed later — decided, don't revisit)
 **Owner:** Robert
@@ -11,8 +11,10 @@
 
 A minimal golden path on AWS — Terraform modules, reusable GitHub Actions, and a
 manifest contract — so that an AI coding agent can take a plain-language spec to a
-production-grade deployment with guardrails, in minutes, without touching
-infrastructure.
+production-minded deployment with guardrails, in minutes, without touching
+infrastructure. `prod` is a promotion target, not a production-readiness claim;
+the explicit trust boundaries and accepted risks live in the
+[threat model](threat-model.md).
 
 ## 2. Problem
 
@@ -79,8 +81,8 @@ AWS Copilot in production):
 repo: flightdeck (github.com/rpuffe/flightdeck, public)
 ├── bootstrap/            # account-level, applied once
 │   ├── state backend (S3, native lockfile — TF >= 1.10)
-│   ├── GitHub OIDC provider + deploy role
-│   ├── ECR repo-per-app via for_each
+│   ├── GitHub OIDC provider + per-app deploy roles
+│   ├── ECR dev/prod repos per app via for_each
 │   ├── VPC + networking (official module; fck-nat for cost)
 │   ├── DNS: child hosted zone fd.robertpuffe.com, delegated from the
 │   │   existing robertpuffe.com zone (parent zone is DATA SOURCE ONLY;
@@ -252,7 +254,10 @@ moment of failure instead of memorized upfront:
 ## 10. Risks / open decisions
 
 **Decided (2026-07-10):** NAT = fck-nat (cost-conscious, documented tradeoff).
-ECR = repo-per-app via `for_each` (cleaner lifecycle rules and scoped permissions).
+ECR began repo-per-app via `for_each`; the next hardening release splits dev
+and prod repositories per app so dev retention can never delete a deployed
+production image. The original repository name remains prod for migration
+continuity.
 Name = flightdeck.
 
 **Decided (2026-07-10, review pass):**
@@ -270,8 +275,9 @@ Name = flightdeck.
 writeup gate was satisfied):**
 - Environments: push to main → dev (`<name>-dev.fd...`, rides the existing
   wildcard cert); tag v* → prod (`<name>.fd...`). Promotion deploys the SAME
-  immutable SHA image main built — build once, promote the artifact, never
-  rebuild.
+  immutable image main built by copying its OCI manifest from the dev ECR
+  repository to prod and verifying the digest — build once, promote the
+  artifact, never rebuild.
 - PR checks run with ZERO cloud credentials (build + both Trivy gates +
   fmt/validate). OIDC trust covers main + v* tag refs only — unmerged code
   never holds credentials. Plan-preview-on-PR needs a separate read-only
