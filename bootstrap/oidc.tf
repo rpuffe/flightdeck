@@ -195,27 +195,39 @@ data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
     ]
   }
 
-  # --- ECS: this app's prod and dev services/task definitions only ---
+  # --- ECS: this app's prod and dev services/task definitions, except where
+  # AWS does not expose resource-level authorization ---
 
-  # RegisterTaskDefinition cannot be resource-scoped at create time. The
-  # mandatory permissions boundary and exact iam:PassRole resources below
-  # prevent an arbitrary task definition from gaining broader AWS access.
   statement {
-    sid = "EcsTaskDefinitionCreate"
-    actions = [
-      "ecs:RegisterTaskDefinition",
-      "ecs:DescribeTaskDefinition",
+    sid     = "EcsTaskDefinitionCreate"
+    actions = ["ecs:RegisterTaskDefinition"]
+    resources = [
+      for service in each.value.service_names :
+      "arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task-definition/${local.name_prefix}-${service}:*"
     ]
+  }
+
+  # DescribeTaskDefinition does not support resource-level authorization.
+  statement {
+    sid       = "EcsTaskDefinitionRead"
+    actions   = ["ecs:DescribeTaskDefinition"]
     resources = ["*"]
   }
 
   statement {
     sid     = "EcsTaskDefinitionDelete"
     actions = ["ecs:DeregisterTaskDefinition"]
-    resources = [
-      for service in each.value.service_names :
-      "arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task-definition/${local.name_prefix}-${service}:*"
-    ]
+    # AWS exposes neither a resource type nor an action-specific condition key
+    # for DeregisterTaskDefinition, so an exact task-definition ARN never
+    # authorizes Terraform's replacement cleanup. Keep the unavoidable
+    # wildcard isolated to this one action and bound to Flightdeck's region.
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.region]
+    }
   }
 
   statement {

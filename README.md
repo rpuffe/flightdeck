@@ -234,12 +234,11 @@ described: a push built and deployed dev, then tagging that same commit
 promoted prod to the **byte-identical image SHA** main had just built — no
 rebuild (failure log, v0.3.0 pipeline proof).
 
-The full [failure log](spec-docs/failure-log.md) has six numbered entries —
-four platform-side (found while hardening the pipeline), two agent-loop-side
-— plus the v0.3.0 pipeline proof and the `board` shape-generality run. Every
-one patched either the platform or the contract; none were worked around in
-an app repo. That's the hardening loop the log is meant to show: failures
-under real use, not a spec written in a vacuum.
+The full [failure log](spec-docs/failure-log.md) has ten numbered entries,
+plus the v0.3.0 pipeline proof and the `board` shape-generality run. Every one
+patched either the platform or the contract; none were worked around in an app
+repo. That's the hardening loop the log is meant to show: failures under real
+use, not a spec written in a vacuum.
 
 ## Cross-agent compatibility
 
