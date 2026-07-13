@@ -75,8 +75,14 @@ jobs:
           # commit SHA, never reused, so a re-push of the same commit can't
           # silently overwrite a previously scanned image.
           registry="${{ steps.ecr-login.outputs.registry }}"
-          repo="flightdeck/${{ steps.manifest.outputs.name }}"
+          # Dev and prod use separate repositories so high-frequency dev
+          # pushes can never expire the image a sleeping prod service needs.
+          repo="flightdeck/${{ steps.manifest.outputs.name }}-dev"
           image="$registry/$repo:${{ github.sha }}"
-          docker tag app:${{ github.sha }} "$image"
-          docker push "$image"
+          if aws ecr describe-images --repository-name "$repo" --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
+            echo "image already exists for this immutable SHA; reusing it"
+          else
+            docker tag app:${{ github.sha }} "$image"
+            docker push "$image"
+          fi
           echo "image=$image" >> "$GITHUB_OUTPUT"

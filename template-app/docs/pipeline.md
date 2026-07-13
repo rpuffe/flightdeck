@@ -11,13 +11,15 @@ pushing/tagging if you want to know what's about to run.
   `refs/tags/v*`, deliberately excluding PR refs, so unmerged code never
   holds credentials. That's why there's no `terraform plan` preview on PRs:
   plan needs a role to assume, and PRs don't get one, on purpose.
-- **Push to `main`** builds, scans, pushes to ECR, then `terraform
-  plan`/`apply`s to **dev**: `https://<name>-dev.fd.robertpuffe.com`.
+- **Push to `main`** builds, scans, and pushes to the app's dev ECR
+  repository, then `terraform plan`/`apply`s to **dev**:
+  `https://<name>-dev.fd.robertpuffe.com`.
 - **Tag `v*`** promotes to **prod**: `https://<name>.fd.robertpuffe.com`.
-  Promotion does not rebuild or re-scan — it looks up the image already
-  pushed to ECR for the tagged commit's SHA and applies that exact image.
-  Dev and prod always run the bit-identical artifact; only the Terraform
-  state and target environment differ.
+  Promotion does not rebuild or re-scan — it copies the already-scanned OCI
+  manifest for the tagged commit from the dev ECR repository into the prod
+  repository, verifies the two digests match, and applies that exact image.
+  Separate repositories let dev and prod retain images independently; dev
+  churn cannot delete the image a sleeping prod service needs to restart.
 
 Both scan gates fail on HIGH/CRITICAL findings only — a deliberate,
 documented threshold, not every low-severity finding.

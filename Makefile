@@ -224,7 +224,7 @@ new-app:
 	@echo "Scaffolded ../$(NAME) and registered it in $(BOOTSTRAP)/variables.tf."
 	@echo "NEXT STEPS (manual — repo creation and infra applies are deliberate"
 	@echo "actions, scaffolding is the mechanical part):"
-	@echo "  1) review the registry diff, then: make bootstrap   (creates the ECR repo for $(NAME))"
+	@echo "  1) review the registry diff, then: make bootstrap   (creates dev/prod ECR repos for $(NAME))"
 	@echo "  2) gh repo create $(NAME) --public --source ../$(NAME)"
 	@echo "  3) gh variable set FLIGHTDECK_DEPLOY_ROLE_ARN --repo <owner>/$(NAME) --body \"\$$(terraform -chdir=bootstrap output -raw deploy_role_arn)\""
 	@echo "  4) git -C ../$(NAME) push -u origin main   ->  https://$(NAME)-dev.$(APP_DOMAIN)"
