@@ -209,8 +209,10 @@ platform tag is cut, migrate one registered app at a time:
 3. Run `make upgrade TAG=<new-release>` in the app repository and deploy dev
    once. Terraform attaches the required boundary to the existing roles and
    replaces the legacy inline storage grant with the scoped managed policy.
-4. Verify every existing dev/prod task and execution role reports the expected
-   `PermissionsBoundary` with `aws iam get-role`, then promote normally.
+4. Verify the dev task and execution roles report the expected
+   `PermissionsBoundary` with `aws iam get-role`.
+5. Promote normally, then verify the prod task and execution roles report the
+   expected `PermissionsBoundary` as well.
 
 Do not remove an app from the bootstrap registry until its dev and prod stacks
 have been destroyed; their task roles still reference bootstrap-owned boundary
