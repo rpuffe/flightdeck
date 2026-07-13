@@ -33,6 +33,20 @@ APP_DOMAIN := fd.robertpuffe.com
 # Scale operations are deliberate drift: terraform state keeps desired_count=1,
 # so the NEXT DEPLOY of a service restores it. Cheap overnight off-switch, not
 # a permanent setting.
+#
+# stop/start/stop-all/start-all go through the flightdeck-scaler Lambda
+# (aws lambda invoke) rather than calling `aws ecs update-service` directly,
+# so manual ops get the same listener-rule "flip" behavior the nightly
+# scheduler gets (D3, auto-wake design): a stopped app's own URL lands on a
+# warming page instead of a dead-end 503. `make ps` stays read-only direct.
+#
+# This requires the calling principal to hold lambda:InvokeFunction on the
+# flightdeck-scaler function. If that grant hasn't been added yet (see the
+# CHANGE 3 TODO block in bootstrap/scaler.tf -- it's deliberately NOT
+# terraform-managed, since it would mean granting a pre-existing IAM user a
+# new permission, which risks the net-new-only safeguard), invoke fails with
+# AccessDenied and the targets below print a pointer back to that TODO
+# instead of a raw CLI error.
 
 ps:
 	@aws ecs list-services --cluster $(CLUSTER) --query 'serviceArns' --output text | tr '\t' '\n' | awk -F/ '{print $$NF}' | sort | while read s; do \
@@ -42,29 +56,73 @@ ps:
 	  awk '{printf "%-20s desired=%s running=%s  https://%s.$(APP_DOMAIN)\n", $$1, $$2, $$3, $$1}'; \
 	done
 
+# Single-line python3 -c body shared by stop/start/stop-all/start-all: reads
+# the invoke response JSON from $$tmp, prints one "name -> result" line per
+# service (results carry "ok" or an error message per service -- a bad name
+# in a batch never aborts the others), and exits non-zero if the Lambda
+# itself reported status != "ok". Written as one physical line (no embedded
+# newlines) so GNU Make's line-based recipe parsing can't mis-split it --
+# multi-line quoted strings inside a Make recipe don't reliably survive
+# Make's own line-continuation handling.
+PARSE_LAMBDA_RESPONSE = python3 -c 'import json, sys; resp = json.load(open(sys.argv[1])); ok = resp.get("status") == "ok"; print("error:", resp) if not ok else None; [print(n, "->", resp["results"][n]) for n in sorted(resp.get("results", {}))] if ok else None; sys.exit(0 if ok else 1)'
+
 stop:
 	@test -n "$(SVC)" || { echo "usage: make stop SVC=<service>   (make ps lists them)"; exit 1; }
-	@aws ecs update-service --cluster $(CLUSTER) --service $(SVC) --desired-count 0 \
-	  --query 'service.[serviceName,desiredCount]' --output text | awk '{print $$1" -> desired="$$2}'
-	@echo "note: next deploy of $(SVC) restores desired=1 (terraform owns that value)"
+	@tmp=$$(mktemp) && \
+	if ! aws lambda invoke --function-name flightdeck-scaler \
+	    --cli-binary-format raw-in-base64-out \
+	    --payload '{"action":"stop","services":["$(SVC)"]}' \
+	    "$$tmp" > /dev/null 2>&1; then \
+	  echo "error: lambda invoke failed -- does this principal have lambda:InvokeFunction"; \
+	  echo "  on flightdeck-scaler? see the CHANGE 3 TODO in bootstrap/scaler.tf"; \
+	  rm -f "$$tmp"; exit 1; \
+	fi; \
+	$(PARSE_LAMBDA_RESPONSE) "$$tmp"; \
+	status=$$?; rm -f "$$tmp"; \
+	if [ $$status -eq 0 ]; then echo "note: next deploy of $(SVC) restores desired=1 (terraform owns that value)"; fi; \
+	exit $$status
 
 start:
 	@test -n "$(SVC)" || { echo "usage: make start SVC=<service>   (make ps lists them)"; exit 1; }
-	@aws ecs update-service --cluster $(CLUSTER) --service $(SVC) --desired-count 1 \
-	  --query 'service.[serviceName,desiredCount]' --output text | awk '{print $$1" -> desired="$$2}'
+	@tmp=$$(mktemp) && \
+	if ! aws lambda invoke --function-name flightdeck-scaler \
+	    --cli-binary-format raw-in-base64-out \
+	    --payload '{"action":"start","services":["$(SVC)"]}' \
+	    "$$tmp" > /dev/null 2>&1; then \
+	  echo "error: lambda invoke failed -- does this principal have lambda:InvokeFunction"; \
+	  echo "  on flightdeck-scaler? see the CHANGE 3 TODO in bootstrap/scaler.tf"; \
+	  rm -f "$$tmp"; exit 1; \
+	fi; \
+	$(PARSE_LAMBDA_RESPONSE) "$$tmp"; \
+	status=$$?; rm -f "$$tmp"; exit $$status
 
 stop-all:
-	@aws ecs list-services --cluster $(CLUSTER) --query 'serviceArns' --output text | tr '\t' '\n' | awk -F/ '{print $$NF}' | while read s; do \
-	  [ -n "$$s" ] || continue; \
-	  aws ecs update-service --cluster $(CLUSTER) --service $$s --desired-count 0 --query 'service.serviceName' --output text | awk '{print $$1" -> desired=0"}'; \
-	done
-	@echo "note: any service's next deploy restores it (terraform owns desired_count)"
+	@tmp=$$(mktemp) && \
+	if ! aws lambda invoke --function-name flightdeck-scaler \
+	    --cli-binary-format raw-in-base64-out \
+	    --payload '{"action":"stop-all"}' \
+	    "$$tmp" > /dev/null 2>&1; then \
+	  echo "error: lambda invoke failed -- does this principal have lambda:InvokeFunction"; \
+	  echo "  on flightdeck-scaler? see the CHANGE 3 TODO in bootstrap/scaler.tf"; \
+	  rm -f "$$tmp"; exit 1; \
+	fi; \
+	$(PARSE_LAMBDA_RESPONSE) "$$tmp"; \
+	status=$$?; rm -f "$$tmp"; \
+	if [ $$status -eq 0 ]; then echo "note: any service's next deploy restores it (terraform owns desired_count)"; fi; \
+	exit $$status
 
 start-all:
-	@aws ecs list-services --cluster $(CLUSTER) --query 'serviceArns' --output text | tr '\t' '\n' | awk -F/ '{print $$NF}' | while read s; do \
-	  [ -n "$$s" ] || continue; \
-	  aws ecs update-service --cluster $(CLUSTER) --service $$s --desired-count 1 --query 'service.serviceName' --output text | awk '{print $$1" -> desired=1"}'; \
-	done
+	@tmp=$$(mktemp) && \
+	if ! aws lambda invoke --function-name flightdeck-scaler \
+	    --cli-binary-format raw-in-base64-out \
+	    --payload '{"action":"start-all"}' \
+	    "$$tmp" > /dev/null 2>&1; then \
+	  echo "error: lambda invoke failed -- does this principal have lambda:InvokeFunction"; \
+	  echo "  on flightdeck-scaler? see the CHANGE 3 TODO in bootstrap/scaler.tf"; \
+	  rm -f "$$tmp"; exit 1; \
+	fi; \
+	$(PARSE_LAMBDA_RESPONSE) "$$tmp"; \
+	status=$$?; rm -f "$$tmp"; exit $$status
 
 fmt:
 	$(TF) -chdir=$(BOOTSTRAP) fmt -recursive

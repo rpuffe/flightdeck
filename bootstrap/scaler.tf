@@ -50,6 +50,37 @@ data "aws_iam_policy_document" "scaler_permissions" {
     ]
   }
 
+  # Auto-wake "rule flip" (issue #32): the scaler reads listener rules and
+  # target health to decide whether an app is ready, and moves a rule's
+  # forward action between the app's own target group and the scaler's.
+  statement {
+    sid = "ElbRuleFlipRead"
+    actions = [
+      "elasticloadbalancing:DescribeRules",
+      "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:DescribeTargetHealth",
+    ]
+    # None of these three actions support resource-level scoping -- AWS
+    # requires "*" for Describe* calls on ELBv2. Read-only, so this is a
+    # visibility grant, not a mutation risk.
+    resources = ["*"]
+  }
+
+  statement {
+    sid     = "ElbRuleFlipWrite"
+    actions = ["elasticloadbalancing:ModifyRule"]
+    # Scoped to this ALB's own listener-rule ARN space (same
+    # app/flightdeck*/*/*/* shape the deploy role uses in oidc.tf). Caveat:
+    # this listener is shared by every app rule AND the scaler's own
+    # priority=1 rule, so the grant isn't per-app-isolated -- it covers
+    # ModifyRule on any rule under this listener, including the scaler's
+    # own (harmless: there's nothing to gain by repointing that rule at
+    # itself, but it's not a narrower scope than "any rule flightdeck owns").
+    resources = [
+      "arn:aws:elasticloadbalancing:${var.region}:${data.aws_caller_identity.current.account_id}:listener-rule/app/${local.name_prefix}*/*/*/*",
+    ]
+  }
+
   statement {
     sid = "OwnLogGroup"
     actions = [
@@ -102,8 +133,10 @@ resource "aws_lambda_function" "scaler" {
 
   environment {
     variables = {
-      CLUSTER    = aws_ecs_cluster.this.name
-      APP_DOMAIN = local.child_zone_name
+      CLUSTER       = aws_ecs_cluster.this.name
+      APP_DOMAIN    = local.child_zone_name
+      LISTENER_ARN  = aws_lb_listener.https.arn
+      SCALER_TG_ARN = aws_lb_target_group.scaler.arn
     }
   }
 
@@ -196,6 +229,20 @@ resource "aws_lambda_permission" "alb" {
   source_arn    = aws_lb_target_group.scaler.arn
 }
 
+# Lets the operator who manages this stack invoke the scaler from `make
+# stop/start` (D3, auto-wake). This is a RESOURCE-BASED policy ON the
+# flightdeck-owned Lambda -- net-new, §5b-clean -- scoped to this one
+# function. It does NOT attach anything to the pre-existing operator IAM
+# user (that would modify a resource this stack doesn't own). Same-account:
+# a resource-policy grant alone is sufficient to invoke, no identity policy
+# on the user required. Authorized for this function specifically (2026-07-12).
+resource "aws_lambda_permission" "operator_invoke" {
+  statement_id  = "AllowOperatorManualInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.scaler.function_name
+  principal     = data.aws_caller_identity.current.arn
+}
+
 resource "aws_lb_target_group_attachment" "scaler" {
   target_group_arn = aws_lb_target_group.scaler.arn
   target_id        = aws_lambda_function.scaler.arn
@@ -225,6 +272,53 @@ resource "aws_lb_listener_rule" "scaler" {
     }
   }
 }
+
+# ---------------------------------------------------------------------------
+# Operator invoke permission (CHANGE 3, auto-wake review) -- NOT implemented
+# ---------------------------------------------------------------------------
+#
+# `make stop`/`make start`/`make stop-all`/`make start-all` now go through
+# this Lambda (D3) instead of calling `aws ecs update-service` directly, so
+# the operator principal that runs those targets needs lambda:InvokeFunction
+# on aws_lambda_function.scaler. In this account that principal is the IAM
+# user "agent-infra-tool" (076047026061) -- a PRE-EXISTING user this stack
+# did not create.
+#
+# Judgment call: NOT adding an aws_iam_user_policy resource attached to that
+# user here. Two reasons, either one sufficient on its own:
+#   1. Spec 5b / CLAUDE.local.md #2 are unambiguous: "never destroy, modify,
+#      or import pre-existing resources; net-new only." Attaching an inline
+#      policy to agent-infra-tool is a modification of a resource this stack
+#      does not own, not a net-new resource -- the same category of action
+#      the safeguard exists to block, even though the intent here is
+#      additive/benign.
+#   2. Even if that read were wrong, it's unverified whether agent-infra-tool
+#      currently holds iam:PutUserPolicy on itself. If it doesn't, this
+#      resource would just fail apply; if it does, having an agent apply a
+#      policy grant to its own principal is a self-escalation pattern worth
+#      a human's eyes first regardless.
+#
+# Exact policy needed, for Robert to add by hand (e.g. via the console, or a
+# small one-off `aws iam put-user-policy` run outside this stack) if `make
+# stop`/`make start` fail with AccessDenied on lambda:InvokeFunction:
+#
+#   Principal: IAM user agent-infra-tool
+#   Policy name suggestion: flightdeck-scaler-invoke
+#   Policy document:
+#     {
+#       "Version": "2012-10-17",
+#       "Statement": [
+#         {
+#           "Effect": "Allow",
+#           "Action": "lambda:InvokeFunction",
+#           "Resource": "<aws_lambda_function.scaler.arn -- see
+#                          terraform -chdir=bootstrap output>"
+#         }
+#       ]
+#     }
+#
+# The Makefile targets detect an invoke failure and print a pointer back to
+# this block rather than failing silently or guessing at a fix.
 
 # ---------------------------------------------------------------------------
 # Outputs
