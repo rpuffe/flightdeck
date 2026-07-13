@@ -39,7 +39,7 @@ authorization, input validation, and data handling.
 
 ## Accepted v1 posture
 
-Flightdeck optimizes for a low-cost, inspectable portfolio platform: one web
+Flightdeck optimizes for a low-cost, inspectable reference platform: one web
 service shape, one personal account, standard tools, reversible Terraform, and
 measured spec-to-URL runs. The shared control plane, same-app dev/prod role,
 single-task availability, automatic tag promotion, and teardown-first storage
