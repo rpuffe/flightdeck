@@ -63,6 +63,30 @@ quoting in the template Makefile, verified against a spacey value. Lesson:
 the validation tool must accept everything the schema accepts — anything
 narrower is a second, undocumented contract.
 
+### 7. Reflected XSS in the wake endpoint, caught by pre-apply review
+The fleet-scaler's "no such service" page interpolated the raw `svc` query
+value into HTML — a confirmed reflected XSS on a public unauthenticated
+hostname, found (and proven with a probe) by the security-review subagent
+BEFORE the first apply. **Fix:** html.escape on every reflected value. The
+live test later verified escaping under both raw and percent-encoded input,
+and surfaced a related nuance: the ALB→Lambda path does not percent-decode
+query values — inert here, but documented for anything built on top later.
+
+### 8. Scheduler trust conditions can't reference the schedule being created
+CreateSchedule validates the execution role's assumability BEFORE the
+schedule exists, so a confused-deputy `aws:SourceArn` condition pinned to
+the schedule's own exact ARN fails validation — chicken-and-egg, hit twice
+(retry ruled out IAM propagation). **Fix:** condition on
+`aws:SourceAccount`, which still blocks the real cross-account threat.
+
+### 9. Account quotas are part of the design space
+The review's blast-radius cap (`reserved_concurrent_executions = 5`) is
+unsatisfiable on this account: the total Lambda concurrency quota is ~10
+and AWS requires the unreserved pool to stay >= 10. **Resolution:** the
+low account ceiling itself bounds concurrency for now; the cap returns
+with a quota increase (tracked). Lesson: hardening recommendations need
+checking against the account's actual quotas, not just the API.
+
 ## Stage 3 result
 
 Cold Sonnet agent, two documents (APP_SPEC.md + CONVENTIONS.md), template
