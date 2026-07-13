@@ -337,13 +337,21 @@ def _index_response():
             state_counts[state] = state_counts.get(state, 0) + 1
             esc_name = html.escape(name)
             url = f"https://{esc_name}.{esc_domain}/"
-            if state == "asleep":
-                action = f'<a href="?svc={esc_name}">wake</a>'
-            else:
+            wake_url = f"?svc={esc_name}"
+            # A not-ready app (asleep or still warming) has no healthy
+            # target behind its own URL yet -- neither the name nor the
+            # action link may point there, or clicking it just lands the
+            # visitor on a raw ALB 503. Both point at the wake/poll page
+            # instead until the service is actually "running".
+            if state == "running":
+                name_link = url
                 action = f'<a href="{url}">open</a>'
+            else:
+                name_link = wake_url
+                action = f'<a href="{wake_url}">wake</a>'
             rows.append(
                 f"<tr>"
-                f'<td><a href="{url}">{esc_name}</a></td>'
+                f'<td><a href="{name_link}">{esc_name}</a></td>'
                 f'<td><span class="state state-{state}">{state}</span></td>'
                 f"<td>{info['desired']}</td><td>{info['running']}</td>"
                 f"<td>{action}</td>"
@@ -363,9 +371,10 @@ def _index_response():
 
     body = f"""
 <h1>flightdeck services</h1>
-<p>This endpoint scales stopped apps back up on demand. Apps also wake
-automatically when visited directly at their own <code>&lt;svc&gt;.{esc_domain}</code>
-URL -- this page is a quick look at the whole fleet.</p>
+<p>This page shows the fleet. A stopped app's row has a "wake" link that
+starts it and waits until it's ready. Visiting a stopped app directly at
+its own <code>&lt;svc&gt;.{esc_domain}</code> URL currently returns a 503 --
+auto-wake on direct visit is temporarily disabled.</p>
 <p class="summary">{summary}</p>
 <table>
 <tr><th>service</th><th>state</th><th>desired</th><th>running</th><th></th></tr>
@@ -391,6 +400,15 @@ Usually ready in about a minute.</p>
 
 
 def _wake_response(svc):
+    """?svc=<name> on the wake host: start the service if needed, then poll
+    until it's actually healthy before ever sending the visitor to the app's
+    own URL. A cold app can take ~60-90s to become healthy, so a one-shot
+    redirect after a fixed delay used to land the visitor on a raw ALB 503
+    with no further refresh. Instead: not healthy yet -> meta-refresh back to
+    this SAME ?svc=<name> endpoint (keeps polling the wake host, never the
+    app host) until _target_group_healthy flips true, then a near-immediate
+    hand-off to the real app URL. No raw 503 is ever shown from this page.
+    """
     services = _list_cluster_services()
     if svc not in services:
         body = f"""
@@ -403,18 +421,23 @@ def _wake_response(svc):
     info = services[svc]
     if info["desired"] == 0:
         _set_desired_count(svc, 1)
-        status_line = "was stopped and is starting now. Usually ready in about a minute."
-    else:
-        status_line = "is already running."
 
-    url = f"https://{html.escape(svc)}.{APP_DOMAIN}/"
-    extra_head = f'<meta http-equiv="refresh" content="20;url={url}">'
-    body = f"""
-<h1>{html.escape(svc)}</h1>
-<p>{html.escape(svc)} {status_line}</p>
-<p>You'll be redirected to <a href="{url}">{url}</a> shortly.</p>
-"""
-    return _html_response(_page(f"flightdeck: waking {html.escape(svc)}", body, extra_head))
+    try:
+        tg_arn = _target_group_arn_by_name(f"flightdeck-{svc}")
+        healthy = _target_group_healthy(tg_arn)
+    except Exception as e:  # noqa: BLE001 -- degrade to warming/poll, never 500 the page
+        print(json.dumps({"warning": "wake target-health check failed", "service": svc, "error": str(e)}))
+        healthy = False
+
+    if healthy:
+        url = f"https://{svc}.{APP_DOMAIN}/"
+        return _warming_page(svc, url, refresh_seconds=1, healthy=True)
+
+    # Not healthy yet: refresh back to the wake endpoint itself (not the app
+    # URL) so the browser keeps polling wake.<domain> until the app is truly
+    # ready, then gets handed off.
+    poll_url = f"?svc={svc}"
+    return _warming_page(svc, poll_url, refresh_seconds=6, healthy=False)
 
 
 def _handle_wake_host(event):
