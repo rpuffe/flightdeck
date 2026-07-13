@@ -47,6 +47,12 @@ resource "aws_iam_role" "deploy" {
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume.json
 }
 
+# Temporary baseline for the entire legacy shared deploy policy document.
+# Trivy applies this ignore to every AVD-AWS-0345 finding in the data block,
+# not only the known s3:* grant, so it creates a temporary blind spot here.
+# Issue #36 and the third PR in this stack remove the ignore while replacing
+# s3:* with explicit per-app actions; findings elsewhere remain enforced.
+#trivy:ignore:AVD-AWS-0345
 data "aws_iam_policy_document" "deploy_permissions" {
   # --- ECR ---
 

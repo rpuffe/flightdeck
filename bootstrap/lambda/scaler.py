@@ -1,4 +1,4 @@
-"""flightdeck-scaler: nightly cool-down + ALB wake / auto-wake endpoint.
+"""flightdeck-scaler: nightly cool-down + explicit ALB wake endpoint.
 
 Two entrypoints share this one function (spec 5b: net-new, flightdeck-
 prefixed, no speculative surface area):
@@ -7,27 +7,16 @@ prefixed, no speculative surface area):
    Drives ECS desired_count for the flightdeck cluster. Used by the nightly
    EventBridge Scheduler rule (action=stop-all), `make
    stop`/`make start`/`make stop-all`/`make start-all`, and any other direct
-   invoke. Stop actions ONLY set desired_count to 0 -- they no longer touch
-   any ALB listener rule (see SAFETY REVERT below).
+   invoke. Stop actions only set desired_count to 0.
 2. ALB target events (identified structurally by requestContext.elb):
-   branches on the Host header the ALB routed on.
-     - Host == wake.<child_zone>: the fleet control page (list + start any
-       service). START-ONLY by construction -- see _handle_wake_host, which
-       is the single enforcement point that rejects any attempt to express a
-       stop over HTTP.
-     - Host == <svc>.<child_zone>: auto-wake (DORMANT -- see
-       _handle_app_host). No code path flips a listener rule to the scaler
-       anymore, so an app's own rule is never repointed here and this
-       handler is currently unreachable in production.
+   serve only wake.<child_zone>. The public endpoint lists fleet state and
+   starts a selected service. It is start-only by construction; stopping is
+   available only through the schedule or authenticated direct invocation.
 
-SAFETY REVERT: stop paths used to also flip the targeted service's ALB
-listener rule to this Lambda's own target group, so a stopped app's URL
-would land on an auto-wake page instead of a dead 503. That flip is now
-permanently removed: an ALB does not health-check a target group once it's
-detached from a rule, so the app TG could never be observed "healthy" again
-and the flip-back in _handle_app_host could never fire -- stopping an app
-permanently stranded its URL behind an infinite warming loop. See
-_stop_service and _handle_app_host for details.
+Direct-visit auto-wake was removed after live testing proved listener-rule
+flipping could deadlock a service behind the warming page. A sleeping app's
+own URL therefore returns the ALB's normal 503 until it is started from the
+explicit wake page.
 
 boto3 comes from the Lambda Python 3.13 runtime; zero pip dependencies.
 """
@@ -35,14 +24,11 @@ boto3 comes from the Lambda Python 3.13 runtime; zero pip dependencies.
 import html
 import json
 import os
-import re
 
 import boto3
 
 CLUSTER = os.environ["CLUSTER"]
 APP_DOMAIN = os.environ["APP_DOMAIN"]
-LISTENER_ARN = os.environ["LISTENER_ARN"]
-SCALER_TG_ARN = os.environ["SCALER_TG_ARN"]
 
 WAKE_HOST = f"wake.{APP_DOMAIN}"
 
@@ -80,36 +66,6 @@ def _set_desired_count(name, count):
     ecs.update_service(cluster=CLUSTER, service=name, desiredCount=count)
 
 
-# ---------------------------------------------------------------------------
-# ALB listener-rule helpers (the "rule flip"). Read-only Describe* calls have
-# no resource-level IAM support so the scaler role holds them on "*";
-# ModifyRule is scoped in Terraform to this ALB's own listener-rule ARN
-# space (see scaler.tf) -- note that scope also technically covers this
-# rule's own scaler listener rule (priority=1, host wake.<domain>), not just
-# per-app rules. That's harmless (there's nothing sensitive to gain by
-# repointing the scaler's own rule at itself) but it means the ModifyRule
-# grant isn't per-app-isolated; flagging per review finding 6.
-# ---------------------------------------------------------------------------
-
-
-def _find_host_rule_arn(host):
-    """Find the listener rule on LISTENER_ARN whose host-header condition is
-    exactly [host]. DescribeRules returns every rule for one listener in a
-    single call (no NextMarker/pagination token in this API) -- fleet-scale
-    rule counts (one rule per app, realistically tens) sit nowhere near the
-    per-listener rule ceiling AWS enforces, so no pagination loop is needed.
-    """
-    resp = elbv2.describe_rules(ListenerArn=LISTENER_ARN)
-    for rule in resp.get("Rules", []):
-        for cond in rule.get("Conditions", []):
-            if cond.get("Field") != "host-header":
-                continue
-            values = cond.get("HostHeaderConfig", {}).get("Values") or cond.get("Values") or []
-            if values == [host]:
-                return rule["RuleArn"]
-    return None
-
-
 def _target_group_arn_by_name(name):
     resp = elbv2.describe_target_groups(Names=[name])
     tgs = resp.get("TargetGroups", [])
@@ -126,61 +82,15 @@ def _target_group_healthy(tg_arn):
     )
 
 
-def _modify_rule_forward(rule_arn, target_group_arn):
-    elbv2.modify_rule(
-        RuleArn=rule_arn,
-        Actions=[{"Type": "forward", "TargetGroupArn": target_group_arn}],
-    )
-
-
-def _flip_to_scaler(svc):
-    """Repoint svc's listener rule at this Lambda's own target group. Only
-    ever called from the non-HTTP action path (D4 security invariant:
-    flips toward the scaler never happen as a side effect of an HTTP
-    request).
-    """
-    host = f"{svc}.{APP_DOMAIN}"
-    rule_arn = _find_host_rule_arn(host)
-    if rule_arn is None:
-        raise LookupError(f"no listener rule found for host {host}")
-    print(json.dumps({"action": "flip_rule", "service": svc, "target": "scaler"}))
-    _modify_rule_forward(rule_arn, SCALER_TG_ARN)
-
-
-def _flip_to_app(svc):
-    """Repoint svc's listener rule at its own app target group. Only ever
-    called from the auto-wake ALB path, and only after that target group has
-    been confirmed healthy (D4 invariant: HTTP can only make things MORE
-    available).
-    """
-    host = f"{svc}.{APP_DOMAIN}"
-    rule_arn = _find_host_rule_arn(host)
-    if rule_arn is None:
-        raise LookupError(f"no listener rule found for host {host}")
-    app_tg_arn = _target_group_arn_by_name(f"flightdeck-{svc}")
-    print(json.dumps({"action": "flip_rule", "service": svc, "target": "app"}))
-    _modify_rule_forward(rule_arn, app_tg_arn)
-
-
 # ---------------------------------------------------------------------------
 # Per-service operations used by the action-event path. Each wraps its ECS
-# (and, for stop, ELB) calls in try/except so one bad service name in a
+# call in try/except so one bad service name in a
 # batch can't abort the rest -- callers collect {name: "ok"/error-message}
 # and return it verbatim in the response JSON.
 # ---------------------------------------------------------------------------
 
 
 def _stop_service(name):
-    # SAFETY REVERT (deadlock fix): stop paths used to also flip the app's
-    # listener rule to the scaler target group here. That flip is now
-    # permanently disabled -- an ALB does not health-check a target group
-    # once it's detached from a rule, so the app TG could never report
-    # "healthy" again, and _handle_app_host's flip-back condition (app TG
-    # healthy) could never become true. That stranded the app behind an
-    # infinite warming-page loop with no way back except a manual rule fix.
-    # Stopping now ONLY sets desired count to 0; no code path may flip a
-    # rule toward the scaler anymore. See _handle_app_host for the dormant
-    # auto-wake-on-direct-visit handler this leaves unreachable.
     try:
         _set_desired_count(name, 0)
         return "ok"
@@ -190,9 +100,6 @@ def _stop_service(name):
 
 
 def _start_service(name):
-    # start/start-all deliberately do NOT flip the rule back eagerly (D3):
-    # the rule stays on the scaler until a visitor (or the app's own
-    # deploy) completes the flip-back via the healthy auto-wake path.
     try:
         _set_desired_count(name, 1)
         return "ok"
@@ -216,7 +123,10 @@ def _handle_action_event(event):
         names = sorted(cluster_services)
         worker = _stop_service if action == "stop-all" else _start_service
         results = {name: worker(name) for name in names}
-        return {"status": "ok", "action": action, "results": results}
+        status = "ok" if all(result == "ok" for result in results.values()) else "error"
+        response = {"status": status, "action": action, "results": results}
+        print(json.dumps({"event_type": "action_result", **response}))
+        return response
 
     if action in ("start", "stop"):
         if not services:
@@ -224,7 +134,10 @@ def _handle_action_event(event):
             return {"status": "error", "message": f"action={action} requires a services list"}
         worker = _stop_service if action == "stop" else _start_service
         results = {name: worker(name) for name in services}
-        return {"status": "ok", "action": action, "results": results}
+        status = "ok" if all(result == "ok" for result in results.values()) else "error"
+        response = {"status": status, "action": action, "results": results}
+        print(json.dumps({"event_type": "action_result", **response}))
+        return response
 
     print(json.dumps({"warning": "unknown action, no changes made", "event": event}))
     return {"status": "ignored", "reason": "unknown action"}
@@ -486,81 +399,6 @@ def _warming_page(svc, url, refresh_seconds, healthy=False):
     return _html_response(_page(f"flightdeck: waking {esc_svc}", body, extra_head))
 
 
-def _not_found_page(svc):
-    body = f"""
-<h1>No such service</h1>
-<p><code>{html.escape(svc)}</code> is not registered on this cluster.</p>
-"""
-    return _html_response(_page("flightdeck: not found", body), status=404)
-
-
-def _handle_app_host(host):
-    """https://<svc>.<child_zone>/ -- auto-wake. A request only reaches here
-    because either the rule was flipped to this Lambda (by a stop) or the
-    app never had healthy targets yet. START-ONLY and flip-TOWARD-app-only
-    (D4): the query string is never even inspected on this path, so no
-    query parameter of any kind can stop or flip-to-scaler anything here.
-
-    DORMANT / SHELVED: auto-wake-on-direct-visit is disabled -- the stop
-    path no longer flips rules to the scaler, so this handler is currently
-    unreachable. It deadlocks as written (ALB does not health-check a
-    detached target group); see the flightdeck GitHub issue on auto-wake
-    before re-enabling. Kept for reference/reuse by the proper fix (Lambda
-    VPC health probe, or flip-on-ECS-running with a fast TG health check).
-    """
-    # svc is the first DNS label of a Host the ALB itself matched against a
-    # literal host-header condition before ever invoking this Lambda -- the
-    # ALB only forwards to this target group for hosts an existing listener
-    # rule condition names exactly, so this string is bounded by whatever
-    # app names Terraform created rules for (design risk 4). Still validated
-    # and html.escape'd defensively rather than trusted outright.
-    svc = host[: -(len(APP_DOMAIN) + 1)]
-    print(json.dumps({"event_type": "alb_app_host", "host": host, "svc": svc}))
-
-    if not re.match(r"^[a-z0-9-]{1,32}$", svc):
-        return _not_found_page(svc)
-
-    services = _list_cluster_services()
-    if svc not in services:
-        return _not_found_page(svc)
-
-    url = f"https://{svc}.{APP_DOMAIN}/"
-    info = services[svc]
-
-    if info["desired"] == 0:
-        try:
-            _set_desired_count(svc, 1)
-        except Exception as e:  # noqa: BLE001 -- still serve the warming page
-            print(json.dumps({"error": "auto-wake update_service failed", "service": svc, "message": str(e)}))
-        return _warming_page(svc, url, refresh_seconds=15)
-
-    # desired >= 1 already: check whether the app's own target group has a
-    # healthy target yet before deciding whether to flip the rule back.
-    try:
-        app_tg_arn = _target_group_arn_by_name(f"flightdeck-{svc}")
-        healthy = _target_group_healthy(app_tg_arn)
-    except Exception as e:  # noqa: BLE001
-        print(json.dumps({"error": "target-health check failed", "service": svc, "message": str(e)}))
-        healthy = False
-
-    if not healthy:
-        return _warming_page(svc, url, refresh_seconds=15)
-
-    # Healthy: flip the rule back to the app TG. CHANGE 2 (review): this
-    # does NOT respond with an immediate 302. ALB rule updates propagate
-    # asynchronously, so an instant redirect can race the propagation --
-    # the re-request lands back on this Lambda, sees "healthy" again, and
-    # 302s again -> ERR_TOO_MANY_REDIRECTS. A short (2s) meta-refresh to the
-    # SAME url gives propagation a head start while still self-healing in
-    # one more page load rather than an instant bounce.
-    try:
-        _flip_to_app(svc)
-    except Exception as e:  # noqa: BLE001 -- still serve the page; next
-        # visitor (or a deploy) retries the flip.
-        print(json.dumps({"error": "flip-to-app failed", "service": svc, "message": str(e)}))
-    return _warming_page(svc, url, refresh_seconds=2, healthy=True)
-
-
 def _get_host(event):
     headers = event.get("headers") or {}
     host = headers.get("host") or headers.get("Host")
@@ -577,12 +415,8 @@ def _handle_alb_event(event):
     if host == WAKE_HOST:
         return _handle_wake_host(event)
 
-    if host.endswith(f".{APP_DOMAIN}"):
-        return _handle_app_host(host)
-
-    # Shouldn't happen in practice: the ALB only routes wake.<domain> and
-    # <svc>.<domain> hosts to this Lambda's target group at all (that's what
-    # the listener rule conditions enforce) -- any other host hits the
+    # Shouldn't happen in practice: the ALB only routes wake.<domain> to this
+    # Lambda's target group. Any other host hits the
     # listener's own default 404 fixed-response before ever reaching here.
     # Defensive fallback rather than trusting Host blindly.
     print(json.dumps({"warning": "unrecognized host reached the scaler Lambda", "host": host}))

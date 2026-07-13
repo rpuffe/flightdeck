@@ -1,0 +1,62 @@
+name: platform-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Terraform validate configures the AWS provider but performs no cloud
+      # reads. Explicit test credentials keep this job credential-free and
+      # prevent fallback to runner metadata.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_SKIP_CREDENTIALS_VALIDATION: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: "~> 1.13"
+          terraform_wrapper: false
+
+      - name: Terraform format
+        run: terraform fmt -check -recursive bootstrap modules examples template-app
+
+      - name: Terraform validate
+        run: |
+          make validate
+          terraform -chdir=template-app init -input=false -backend=false
+          terraform -chdir=template-app validate
+
+      - name: Validate manifest contract
+        run: |
+          python3 -c 'import json, pathlib; json.loads(pathlib.Path("template-app/app-manifest.schema.json").read_text())'
+          make -C template-app validate-manifest
+
+      - name: Test fleet scaler
+        run: make test
+
+      - name: Trivy IaC scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          skip-dirs: "**/.terraform"
