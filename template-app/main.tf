@@ -74,7 +74,8 @@ module "app" {
   healthcheck_path = local.manifest.healthcheck
   cpu              = local.manifest.cpu
   memory           = local.manifest.memory
-  env              = local.manifest.env
+  env              = try(local.manifest.env, {})
+  storage          = try(local.manifest.storage, "")
 
   image       = var.image
   environment = var.environment
