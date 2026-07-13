@@ -20,6 +20,10 @@ module "vpc" {
 # NAT instance costs ~$3/mo vs ~$32/mo + data processing for a managed NAT
 # gateway; if its AZ fails, private-subnet egress is down until it's replaced.
 # Cost over availability — acceptable for a personal platform.
+# fck-nat must reach arbitrary internet destinations to provide NAT egress.
+# Its launch template explicitly sets encrypted = true; AWS-0131 is a scanner
+# false positive on the instance that consumes that launch template.
+#trivy:ignore:AVD-AWS-0104 trivy:ignore:AVD-AWS-0131
 module "fck_nat" {
   source  = "RaJiska/fck-nat/aws"
   version = "~> 1.4" # >= 1.4 requires AWS provider >= 6.0

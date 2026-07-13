@@ -24,7 +24,7 @@ HELLO_BACKEND_FLAGS = -backend-config="bucket=$(STATE_BUCKET)" \
 CLUSTER := flightdeck
 APP_DOMAIN := fd.robertpuffe.com
 
-.PHONY: fmt validate plan-bootstrap bootstrap destroy-bootstrap \
+.PHONY: fmt validate test plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
         new-app
@@ -36,17 +36,11 @@ APP_DOMAIN := fd.robertpuffe.com
 #
 # stop/start/stop-all/start-all go through the flightdeck-scaler Lambda
 # (aws lambda invoke) rather than calling `aws ecs update-service` directly,
-# so manual ops get the same listener-rule "flip" behavior the nightly
-# scheduler gets (D3, auto-wake design): a stopped app's own URL lands on a
-# warming page instead of a dead-end 503. `make ps` stays read-only direct.
-#
-# This requires the calling principal to hold lambda:InvokeFunction on the
-# flightdeck-scaler function. If that grant hasn't been added yet (see the
-# CHANGE 3 TODO block in bootstrap/scaler.tf -- it's deliberately NOT
-# terraform-managed, since it would mean granting a pre-existing IAM user a
-# new permission, which risks the net-new-only safeguard), invoke fails with
-# AccessDenied and the targets below print a pointer back to that TODO
-# instead of a raw CLI error.
+# so manual ops use the same desired-count path as the nightly scheduler.
+# A stopped app is restarted explicitly from the wake page;
+# direct visits remain on the app target group and return 503 while stopped.
+# `make ps` stays read-only direct. The scaler Lambda's resource policy grants
+# the bootstrap caller permission to invoke this one function.
 
 ps:
 	@aws ecs list-services --cluster $(CLUSTER) --query 'serviceArns' --output text | tr '\t' '\n' | awk -F/ '{print $$NF}' | sort | while read s; do \
@@ -74,7 +68,7 @@ stop:
 	    --payload '{"action":"stop","services":["$(SVC)"]}' \
 	    "$$tmp" > /dev/null 2>&1; then \
 	  echo "error: lambda invoke failed -- does this principal have lambda:InvokeFunction"; \
-	  echo "  on flightdeck-scaler? see the CHANGE 3 TODO in bootstrap/scaler.tf"; \
+	  echo "  on flightdeck-scaler? re-apply bootstrap as the intended operator"; \
 	  rm -f "$$tmp"; exit 1; \
 	fi; \
 	$(PARSE_LAMBDA_RESPONSE) "$$tmp"; \
@@ -90,7 +84,7 @@ start:
 	    --payload '{"action":"start","services":["$(SVC)"]}' \
 	    "$$tmp" > /dev/null 2>&1; then \
 	  echo "error: lambda invoke failed -- does this principal have lambda:InvokeFunction"; \
-	  echo "  on flightdeck-scaler? see the CHANGE 3 TODO in bootstrap/scaler.tf"; \
+	  echo "  on flightdeck-scaler? re-apply bootstrap as the intended operator"; \
 	  rm -f "$$tmp"; exit 1; \
 	fi; \
 	$(PARSE_LAMBDA_RESPONSE) "$$tmp"; \
@@ -103,7 +97,7 @@ stop-all:
 	    --payload '{"action":"stop-all"}' \
 	    "$$tmp" > /dev/null 2>&1; then \
 	  echo "error: lambda invoke failed -- does this principal have lambda:InvokeFunction"; \
-	  echo "  on flightdeck-scaler? see the CHANGE 3 TODO in bootstrap/scaler.tf"; \
+	  echo "  on flightdeck-scaler? re-apply bootstrap as the intended operator"; \
 	  rm -f "$$tmp"; exit 1; \
 	fi; \
 	$(PARSE_LAMBDA_RESPONSE) "$$tmp"; \
@@ -118,7 +112,7 @@ start-all:
 	    --payload '{"action":"start-all"}' \
 	    "$$tmp" > /dev/null 2>&1; then \
 	  echo "error: lambda invoke failed -- does this principal have lambda:InvokeFunction"; \
-	  echo "  on flightdeck-scaler? see the CHANGE 3 TODO in bootstrap/scaler.tf"; \
+	  echo "  on flightdeck-scaler? re-apply bootstrap as the intended operator"; \
 	  rm -f "$$tmp"; exit 1; \
 	fi; \
 	$(PARSE_LAMBDA_RESPONSE) "$$tmp"; \
@@ -135,6 +129,9 @@ validate:
 	$(TF) -chdir=modules/fargate-service validate
 	$(TF) -chdir=$(HELLO) init -input=false -backend=false > /dev/null
 	$(TF) -chdir=$(HELLO) validate
+
+test:
+	python3 -m unittest discover -s tests -v
 
 # --- Stage 1 worked example -------------------------------------------------
 

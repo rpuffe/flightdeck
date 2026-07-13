@@ -105,17 +105,21 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https" {
 
 resource "aws_vpc_security_group_egress_rule" "alb_all" {
   security_group_id = aws_security_group.alb.id
-  description       = "All outbound (to app targets)"
-  cidr_ipv4         = "0.0.0.0/0"
+  description       = "Outbound to app targets inside the Flightdeck VPC"
+  cidr_ipv4         = module.vpc.vpc_cidr_block
   ip_protocol       = "-1"
 }
 
+# Public ingress is the purpose of the shared application load balancer; app
+# tasks remain private and accept ingress only from its security group.
+#trivy:ignore:AVD-AWS-0053
 resource "aws_lb" "main" {
-  name               = local.name_prefix
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = module.vpc.public_subnets
+  name                       = local.name_prefix
+  internal                   = false
+  load_balancer_type         = "application"
+  drop_invalid_header_fields = true
+  security_groups            = [aws_security_group.alb.id]
+  subnets                    = module.vpc.public_subnets
 }
 
 resource "aws_lb_listener" "http" {
