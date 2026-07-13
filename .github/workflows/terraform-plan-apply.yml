@@ -32,6 +32,9 @@ permissions:
 jobs:
   plan-apply:
     runs-on: ubuntu-latest
+    concurrency:
+      group: flightdeck-${{ github.repository }}-${{ inputs.environment }}
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -115,13 +118,11 @@ jobs:
       - name: Terraform plan
         run: |
           terraform plan -input=false \
+            -out=tfplan \
             -var "image=${{ inputs.image }}" \
             -var "environment=${{ inputs.environment }}" \
             -var "state_bucket=${{ steps.state.outputs.bucket }}"
 
       - name: Terraform apply
-        run: |
-          terraform apply -auto-approve -input=false \
-            -var "image=${{ inputs.image }}" \
-            -var "environment=${{ inputs.environment }}" \
-            -var "state_bucket=${{ steps.state.outputs.bucket }}"
+        # Apply the exact plan above rather than recalculating after review.
+        run: terraform apply -auto-approve -input=false tfplan

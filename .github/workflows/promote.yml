@@ -48,18 +48,48 @@ jobs:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}
 
-      - name: Resolve and verify image
+      - name: Promote and verify image
         id: resolve
         run: |
-          repo="flightdeck/${{ steps.manifest.outputs.name }}"
+          source_repo="flightdeck/${{ steps.manifest.outputs.name }}-dev"
+          prod_repo="flightdeck/${{ steps.manifest.outputs.name }}"
+          tag="${{ github.sha }}"
 
-          if ! aws ecr describe-images --repository-name "$repo" --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
+          if ! aws ecr describe-images --repository-name "$source_repo" --image-ids imageTag="$tag" >/dev/null 2>&1; then
             echo "::error::no image for commit ${{ github.sha }} — promotion deploys the image main already built and validated in dev; tag a commit that has been pushed to main"
             exit 1
           fi
 
-          uri=$(aws ecr describe-repositories --repository-names "$repo" --query 'repositories[0].repositoryUri' --output text)
-          echo "image=$uri:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          source_digest=$(aws ecr describe-images --repository-name "$source_repo" --image-ids imageTag="$tag" --query 'imageDetails[0].imageDigest' --output text)
+
+          if ! aws ecr describe-images --repository-name "$prod_repo" --image-ids imageTag="$tag" >/dev/null 2>&1; then
+            manifest=$(aws ecr batch-get-image \
+              --repository-name "$source_repo" \
+              --image-ids imageTag="$tag" \
+              --accepted-media-types \
+                application/vnd.docker.distribution.manifest.v2+json \
+                application/vnd.oci.image.manifest.v1+json \
+              --query 'images[0].imageManifest' \
+              --output text)
+            if [ -z "$manifest" ] || [ "$manifest" = "None" ]; then
+              echo "::error::could not read the image manifest for $source_repo:$tag"
+              exit 1
+            fi
+            aws ecr put-image \
+              --repository-name "$prod_repo" \
+              --image-tag "$tag" \
+              --image-manifest "$manifest" >/dev/null
+          fi
+
+          prod_digest=$(aws ecr describe-images --repository-name "$prod_repo" --image-ids imageTag="$tag" --query 'imageDetails[0].imageDigest' --output text)
+          if [ "$source_digest" != "$prod_digest" ]; then
+            echo "::error::promotion digest mismatch: dev=$source_digest prod=$prod_digest"
+            exit 1
+          fi
+
+          uri=$(aws ecr describe-repositories --repository-names "$prod_repo" --query 'repositories[0].repositoryUri' --output text)
+          echo "promoted identical digest $prod_digest"
+          echo "image=$uri:$tag" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: resolve
