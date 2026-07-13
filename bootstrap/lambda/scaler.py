@@ -4,26 +4,30 @@ Two entrypoints share this one function (spec 5b: net-new, flightdeck-
 prefixed, no speculative surface area):
 
 1. Scheduler / direct-invoke events: {"action": ..., "services": [...]}.
-   Drives ECS desired_count for the flightdeck cluster, and (for stop
-   actions) repoints each targeted service's ALB listener rule at this
-   Lambda's own target group so a stopped app's own URL lands here instead
-   of a dead-end 503. Used by the nightly EventBridge Scheduler rule
-   (action=stop-all), `make stop`/`make start`/`make stop-all`/`make
-   start-all` (all routed through this Lambda so they get the same rule-flip
-   behavior manual ops previously lacked), and any other direct invoke.
+   Drives ECS desired_count for the flightdeck cluster. Used by the nightly
+   EventBridge Scheduler rule (action=stop-all), `make
+   stop`/`make start`/`make stop-all`/`make start-all`, and any other direct
+   invoke. Stop actions ONLY set desired_count to 0 -- they no longer touch
+   any ALB listener rule (see SAFETY REVERT below).
 2. ALB target events (identified structurally by requestContext.elb):
    branches on the Host header the ALB routed on.
      - Host == wake.<child_zone>: the fleet control page (list + start any
        service). START-ONLY by construction -- see _handle_wake_host, which
        is the single enforcement point that rejects any attempt to express a
        stop over HTTP.
-     - Host == <svc>.<child_zone>: auto-wake. A visitor landed here only
-       because either (a) the app's listener rule was flipped to this
-       Lambda's target group by a stop, or (b) the app never had healthy
-       targets yet. Same START-ONLY invariant: this path can only raise
-       desired_count 0->1 and flip a rule TOWARD the app, and only once that
-       app's own target group reports healthy. It can never stop anything or
-       flip a rule toward the scaler.
+     - Host == <svc>.<child_zone>: auto-wake (DORMANT -- see
+       _handle_app_host). No code path flips a listener rule to the scaler
+       anymore, so an app's own rule is never repointed here and this
+       handler is currently unreachable in production.
+
+SAFETY REVERT: stop paths used to also flip the targeted service's ALB
+listener rule to this Lambda's own target group, so a stopped app's URL
+would land on an auto-wake page instead of a dead 503. That flip is now
+permanently removed: an ALB does not health-check a target group once it's
+detached from a rule, so the app TG could never be observed "healthy" again
+and the flip-back in _handle_app_host could never fire -- stopping an app
+permanently stranded its URL behind an infinite warming loop. See
+_stop_service and _handle_app_host for details.
 
 boto3 comes from the Lambda Python 3.13 runtime; zero pip dependencies.
 """
@@ -167,29 +171,22 @@ def _flip_to_app(svc):
 
 
 def _stop_service(name):
+    # SAFETY REVERT (deadlock fix): stop paths used to also flip the app's
+    # listener rule to the scaler target group here. That flip is now
+    # permanently disabled -- an ALB does not health-check a target group
+    # once it's detached from a rule, so the app TG could never report
+    # "healthy" again, and _handle_app_host's flip-back condition (app TG
+    # healthy) could never become true. That stranded the app behind an
+    # infinite warming-page loop with no way back except a manual rule fix.
+    # Stopping now ONLY sets desired count to 0; no code path may flip a
+    # rule toward the scaler anymore. See _handle_app_host for the dormant
+    # auto-wake-on-direct-visit handler this leaves unreachable.
     try:
         _set_desired_count(name, 0)
+        return "ok"
     except Exception as e:  # noqa: BLE001 -- must not abort the batch
-        msg = f"error: {e}"
         print(json.dumps({"error": "update_service failed", "service": name, "message": str(e)}))
-        return msg
-
-    # CHANGE 1 (review): the flip is attempted unconditionally on every
-    # stop/stop-all call for every targeted service, regardless of whether
-    # desired-count was already 0 (idempotent retry) -- so a previously
-    # failed flip (rule already on the app TG from an earlier failed
-    # attempt, or never flipped at all) self-heals on the next nightly
-    # sweep or manual `make stop-all` instead of persisting indefinitely.
-    # Flip failure here does not fail the service's result: worst case the
-    # visitor gets today's 503 dead end, never worse than before this
-    # feature existed (D1).
-    try:
-        _flip_to_scaler(name)
-    except Exception as e:  # noqa: BLE001
-        print(json.dumps({"warning": "rule flip to scaler failed", "service": name, "error": str(e)}))
-        return f"ok (flip failed: {e})"
-
-    return "ok"
+        return f"error: {e}"
 
 
 def _start_service(name):
@@ -480,6 +477,13 @@ def _handle_app_host(host):
     app never had healthy targets yet. START-ONLY and flip-TOWARD-app-only
     (D4): the query string is never even inspected on this path, so no
     query parameter of any kind can stop or flip-to-scaler anything here.
+
+    DORMANT / SHELVED: auto-wake-on-direct-visit is disabled -- the stop
+    path no longer flips rules to the scaler, so this handler is currently
+    unreachable. It deadlocks as written (ALB does not health-check a
+    detached target group); see the flightdeck GitHub issue on auto-wake
+    before re-enabling. Kept for reference/reuse by the proper fix (Lambda
+    VPC health probe, or flip-on-ECS-running with a fast TG health check).
     """
     # svc is the first DNS label of a Host the ALB itself matched against a
     # literal host-header condition before ever invoking this Lambda -- the
