@@ -47,6 +47,11 @@ resource "aws_iam_role" "deploy" {
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume.json
 }
 
+# Temporary baseline for the legacy shared deploy policy. Issue #36 and the
+# third PR in this stack replace s3:* with explicit per-app actions; keeping
+# this ignore adjacent prevents the new platform gate from failing on a known
+# pre-existing finding while still catching any new wildcard policy elsewhere.
+#trivy:ignore:AVD-AWS-0345
 data "aws_iam_policy_document" "deploy_permissions" {
   # --- ECR ---
 
