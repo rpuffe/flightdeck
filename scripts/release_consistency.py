@@ -52,7 +52,7 @@ def replace_atomically(contents: dict[Path, str]) -> None:
             original = path.read_bytes()
             mode = path.stat().st_mode
             with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
-                handle.write(text.encode())
+                handle.write(text.encode(encoding="utf-8"))
                 temporary = Path(handle.name)
             temporary.chmod(mode)
             prepared.append((path, temporary, original, mode))
@@ -81,7 +81,7 @@ def inspect(root: Path, expected_tag: str, update: bool = False) -> list[str]:
         if not path.is_file():
             errors.append(f"{reference.name}: missing {reference.path}")
             continue
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         matches = list(re.finditer(reference.pattern, text, flags=re.MULTILINE))
         if len(matches) != 1:
             errors.append(
@@ -111,7 +111,7 @@ def inspect(root: Path, expected_tag: str, update: bool = False) -> list[str]:
         changes.setdefault(path, []).append((match.start(), match.end(), replacement))
     updated: dict[Path, str] = {}
     for path, edits in changes.items():
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         for start, end, replacement in sorted(edits, reverse=True):
             text = text[:start] + replacement + text[end:]
         updated[path] = text
@@ -129,7 +129,11 @@ def main() -> int:
     if args.tag and args.set_tag:
         parser.error("--tag and --set are mutually exclusive")
     try:
-        tag = args.set_tag or args.tag or (root / "template-app/.flightdeck-version").read_text().strip()
+        tag = (
+            args.set_tag
+            or args.tag
+            or (root / "template-app/.flightdeck-version").read_text(encoding="utf-8").strip()
+        )
         errors = inspect(root, tag, update=bool(args.set_tag))
         if args.set_tag and not errors:
             errors = inspect(root, tag)

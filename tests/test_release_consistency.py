@@ -67,6 +67,33 @@ class ReleaseConsistencyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(release_consistency.inspect(self.root, "v0.6.0"), [])
 
+    def test_set_preserves_non_ascii_utf8_bytes_outside_tag_replacements(self):
+        readme = self.root / "README.md"
+        original = "Release notes — café\n".encode(encoding="utf-8") + readme.read_bytes()
+        readme.write_bytes(original)
+        reference = next(
+            ref for ref in release_consistency.RELEASE_REFERENCES if ref.path == "README.md"
+        )
+        original_text = original.decode(encoding="utf-8")
+        match = release_consistency.re.search(
+            reference.pattern, original_text, flags=release_consistency.re.MULTILINE
+        )
+        self.assertIsNotNone(match)
+        assert match is not None
+        replacement = match.group(1) + "v0.6.0" + match.group(3)
+        expected = (
+            original_text[: match.start()] + replacement + original_text[match.end() :]
+        ).encode(encoding="utf-8")
+
+        result = subprocess.run(
+            ["python3", str(SCRIPT), "--root", str(self.root), "--set", "v0.6.0"],
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(readme.read_bytes(), expected)
+
     def test_set_writes_nothing_when_inventory_validation_fails(self):
         first = release_consistency.RELEASE_REFERENCES[0]
         first_path = self.root / first.path
