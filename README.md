@@ -23,6 +23,9 @@ Latest tagged release: **v0.5.0**. `main` contains the next unreleased
 hardening release; app repos remain on their pinned tag until that release is
 cut and deliberately adopted.
 
+Maintainers use the [release procedure](spec-docs/releasing.md) to update and
+verify every coupled reference from one authoritative inventory.
+
 Here, `prod` is a build-once promotion target, not a claim of turnkey
 production readiness. Flightdeck deliberately demonstrates production-shaped
 controls in a low-cost personal account; the

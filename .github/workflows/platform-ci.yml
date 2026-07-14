@@ -49,6 +49,9 @@ jobs:
           python3 -c 'import json, pathlib; json.loads(pathlib.Path("template-app/app-manifest.schema.json").read_text())'
           make -C template-app validate-manifest
 
+      - name: Validate release references
+        run: make check-release
+
       - name: Test fleet scaler
         run: make test
 
