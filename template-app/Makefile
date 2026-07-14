@@ -215,7 +215,8 @@ test:
 # Never commits — review with git diff/git status and commit yourself.
 
 upgrade:
-	@tag="$(TAG)"; \
+	@set -e; \
+	tag="$(TAG)"; \
 	if [ -z "$$tag" ]; then \
 	  echo "==> no TAG given, resolving latest release from $(REPO_URL)"; \
 	  tag=$$(git ls-remote --tags $(REPO_URL).git 'v*' | grep -v '\^{}' | awk -F/ '{print $$NF}' | sort -V | tail -1); \
@@ -225,7 +226,8 @@ upgrade:
 	  fi; \
 	fi; \
 	echo "==> upgrading platform-owned files to $$tag"; \
-	for p in AGENTS.md CLAUDE.md docs app-manifest.schema.json main.tf .github/workflows/ci.yml .flightdeck-version Makefile; do \
+	echo "$$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "TAG must match vX.Y.Z"; exit 1; }; \
+	for p in AGENTS.md CLAUDE.md docs app-manifest.schema.json main.tf .github/workflows/ci.yml .flightdeck-version .flightdeck-provenance Makefile; do \
 	  if [ -n "$$(git status --porcelain -- "$$p" 2>/dev/null)" ]; then \
 	    echo "uncommitted changes under platform-owned paths — commit or stash them first (do NOT discard; make upgrade never destroys work)"; \
 	    exit 1; \
@@ -234,15 +236,64 @@ upgrade:
 	if [ -f .flightdeck-version ]; then prev=$$(cat .flightdeck-version); else prev="pre-v0.5.0"; fi; \
 	tmpdir=$$(mktemp -d); \
 	trap 'rm -rf "$$tmpdir"' EXIT; \
-	echo "==> fetching $$tag"; \
-	curl -fsSL "$(REPO_URL)/archive/refs/tags/$$tag.tar.gz" -o "$$tmpdir/release.tar.gz" || { \
+	resolve_tag() { \
+	  git ls-remote --tags "$(REPO_URL).git" "refs/tags/$$tag" "refs/tags/$$tag^{}" | \
+	    awk -v direct="refs/tags/$$tag" -v peeled="refs/tags/$$tag^{}" '$$2 == direct { d=$$1 } $$2 == peeled { p=$$1 } END { print (p != "" ? p : d) }'; \
+	}; \
+	commit=$$(resolve_tag); \
+	echo "$$commit" | grep -Eq '^[0-9a-f]{40}$$' || { echo "could not resolve $$tag to an immutable commit"; exit 1; }; \
+	echo "==> fetching $$tag at immutable commit $$commit"; \
+	curl -fsSL "$(REPO_URL)/archive/$$commit.tar.gz" -o "$$tmpdir/release.tar.gz" || { \
 	  echo "failed to fetch $$tag from $(REPO_URL) — check the tag exists and network is reachable"; \
 	  exit 1; \
 	}; \
+	if command -v sha256sum >/dev/null 2>&1; then \
+	  hash_output=$$(sha256sum "$$tmpdir/release.tar.gz") || { echo "failed to calculate release archive SHA-256"; exit 1; }; \
+	elif command -v shasum >/dev/null 2>&1; then \
+	  hash_output=$$(shasum -a 256 "$$tmpdir/release.tar.gz") || { echo "failed to calculate release archive SHA-256"; exit 1; }; \
+	else \
+	  echo "cannot verify release archive: sha256sum or shasum is required"; \
+	  exit 1; \
+	fi; \
+	archive_sha=$$(printf '%s\n' "$$hash_output" | awk '{print $$1}'); \
+	echo "$$archive_sha" | grep -Eq '^[0-9a-fA-F]{64}$$' || { echo "release archive returned an invalid SHA-256"; exit 1; }; \
 	tar -xzf "$$tmpdir/release.tar.gz" -C "$$tmpdir" || { echo "failed to extract $$tag archive"; exit 1; }; \
 	src=$$(find "$$tmpdir" -type d -path '*/template-app' | head -1); \
 	if [ -z "$$src" ]; then \
 	  echo "could not find template-app/ inside $$tag archive"; \
+	  exit 1; \
+	fi; \
+	for required in AGENTS.md CLAUDE.md app-manifest.schema.json main.tf Makefile .github/workflows/ci.yml; do \
+	  if [ ! -f "$$src/$$required" ]; then \
+	    echo "malformed release archive: missing template-app/$$required"; \
+	    echo "no files were replaced"; \
+	    exit 1; \
+	  fi; \
+	done; \
+	if [ ! -d "$$src/docs" ]; then \
+	  echo "malformed release archive: missing template-app/docs"; \
+	  echo "no files were replaced"; \
+	  exit 1; \
+	fi; \
+	if [ -f "$$src/.flightdeck-version" ]; then \
+	  embedded=$$(cat "$$src/.flightdeck-version"); \
+	else \
+	  embedded=""; \
+	fi; \
+	if [ -n "$$embedded" ] && [ "$$embedded" != "$$tag" ]; then \
+	  echo "release marker mismatch: requested $$tag but immutable archive records $${embedded:-<missing>}"; \
+	  echo "no files were replaced"; \
+	  exit 1; \
+	fi; \
+	if [ -z "$$embedded" ] && ! awk -v tag="$$tag" 'BEGIN { sub(/^v/, "", tag); split(tag, v, "."); exit ! (v[1] + 0 == 0 && v[2] + 0 < 5) }'; then \
+	  echo "release marker missing from $$tag archive (only releases before v0.5.0 may omit it)"; \
+	  echo "no files were replaced"; \
+	  exit 1; \
+	fi; \
+	verified_commit=$$(resolve_tag); \
+	if [ "$$verified_commit" != "$$commit" ]; then \
+	  echo "release provenance changed while fetching $$tag ($$commit -> $${verified_commit:-unresolved})"; \
+	  echo "no files were replaced"; \
 	  exit 1; \
 	fi; \
 	if [ -f "$$src/app-manifest.schema.json" ] && [ -f $(MANIFEST) ]; then \
@@ -265,7 +316,9 @@ upgrade:
 	else \
 	  echo "$$tag" > .flightdeck-version; \
 	fi; \
+	printf 'tag=%s\ncommit=%s\narchive_sha256=%s\n' "$$tag" "$$commit" "$$archive_sha" > .flightdeck-provenance; \
 	cp -f "$$src/Makefile" Makefile; \
 	echo "==> upgraded: $$prev -> $$tag"; \
-	echo "files replaced: AGENTS.md CLAUDE.md docs app-manifest.schema.json main.tf .github/workflows/ci.yml .flightdeck-version Makefile"; \
+	echo "verified provenance: commit=$$commit archive_sha256=$$archive_sha"; \
+	echo "files replaced: AGENTS.md CLAUDE.md docs app-manifest.schema.json main.tf .github/workflows/ci.yml .flightdeck-version .flightdeck-provenance Makefile"; \
 	echo "review with: git diff && git status, then commit. make upgrade never commits."

@@ -99,6 +99,15 @@ previous version, the new tag, and the exact file list it touched. Always
 follow with `git diff && git status` to review before committing — treat it
 like any dependency bump.
 
+**Immutable provenance**: before replacing anything, the upgrade resolves the
+requested tag to its commit, downloads the archive by that commit, checks the
+complete platform file set and embedded release marker, and confirms the tag
+still resolves to the same commit. Releases before v0.5.0 did not carry a
+marker, so their immutable archives are accepted only after the complete legacy
+file set passes validation. The upgrade then records the tag, commit, and
+downloaded archive SHA-256 in `.flightdeck-provenance`. A failed provenance or
+archive-integrity check leaves every file untouched.
+
 **One-time bootstrap for apps created before v0.5.0** (no `upgrade` target
 yet in their Makefile):
 

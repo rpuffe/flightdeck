@@ -27,7 +27,7 @@ APP_DOMAIN := fd.robertpuffe.com
 .PHONY: fmt validate test plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
-        new-app
+        new-app check-release prepare-release
 
 # --- Service operations ------------------------------------------------------
 # Scale operations are deliberate drift: terraform state keeps desired_count=1,
@@ -132,6 +132,13 @@ validate:
 
 test:
 	python3 -m unittest discover -s tests -v
+
+check-release:
+	python3 scripts/release_consistency.py $(if $(TAG),--tag $(TAG),)
+
+prepare-release:
+	@test -n "$(TAG)" || { echo "usage: make prepare-release TAG=vX.Y.Z"; exit 1; }
+	python3 scripts/release_consistency.py --set $(TAG)
 
 # --- Stage 1 worked example -------------------------------------------------
 
