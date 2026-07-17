@@ -32,7 +32,7 @@ class ReleaseConsistencyTests(unittest.TestCase):
 
     def run_check(self):
         return subprocess.run(
-            ["python3", str(SCRIPT), "--root", str(self.root), "--tag", "v0.6.0"],
+            [sys.executable, str(SCRIPT), "--root", str(self.root), "--tag", "v0.6.0"],
             text=True,
             capture_output=True,
         )
@@ -60,12 +60,12 @@ class ReleaseConsistencyTests(unittest.TestCase):
 
     def test_set_updates_and_rechecks_the_inventory(self):
         result = subprocess.run(
-            ["python3", str(SCRIPT), "--root", str(self.root), "--set", "v0.6.0"],
+            [sys.executable, str(SCRIPT), "--root", str(self.root), "--set", "v9.9.9"],
             text=True,
             capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(release_consistency.inspect(self.root, "v0.6.0"), [])
+        self.assertEqual(release_consistency.inspect(self.root, "v9.9.9"), [])
 
     def test_set_preserves_non_ascii_utf8_bytes_outside_tag_replacements(self):
         readme = self.root / "README.md"
@@ -80,13 +80,13 @@ class ReleaseConsistencyTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         assert match is not None
-        replacement = match.group(1) + "v0.6.0" + match.group(3)
+        replacement = match.group(1) + "v9.9.9" + match.group(3)
         expected = (
             original_text[: match.start()] + replacement + original_text[match.end() :]
         ).encode(encoding="utf-8")
 
         result = subprocess.run(
-            ["python3", str(SCRIPT), "--root", str(self.root), "--set", "v0.6.0"],
+            [sys.executable, str(SCRIPT), "--root", str(self.root), "--set", "v9.9.9"],
             text=True,
             capture_output=True,
         )
@@ -102,7 +102,7 @@ class ReleaseConsistencyTests(unittest.TestCase):
         (self.root / missing.path).unlink()
 
         result = subprocess.run(
-            ["python3", str(SCRIPT), "--root", str(self.root), "--set", "v0.6.0"],
+            [sys.executable, str(SCRIPT), "--root", str(self.root), "--set", "v9.9.9"],
             text=True,
             capture_output=True,
         )
@@ -128,7 +128,7 @@ class ReleaseConsistencyTests(unittest.TestCase):
 
         with mock.patch.object(release_consistency.os, "replace", side_effect=fail_once):
             with self.assertRaisesRegex(OSError, "simulated replace failure"):
-                release_consistency.inspect(self.root, "v0.6.0", update=True)
+                release_consistency.inspect(self.root, "v9.9.9", update=True)
 
         self.assertTrue(failed)
         for path, original in originals.items():

@@ -351,11 +351,12 @@ by owner decision):**
 - Task role stays permissionless. Token verification uses the pool's public
   JWKS endpoint; Cognito admin APIs (AdminCreateUser etc.) get a scoped
   task grant only when an app proves the need (§6 rule applies to IAM too).
-- Deploy-role Cognito grants are tag-conditioned
-  (`aws:RequestTag`/`aws:ResourceTag` `project=flightdeck`) rather than
-  name-scoped: pool ARNs contain server-generated IDs that don't exist
-  until creation, so the S3-style name-pattern scoping is impossible.
-  Deliberately looser; noted in the threat model. The grants live in a
+- Deploy-role Cognito grants are tag-conditioned rather than name-scoped:
+  pool ARNs contain server-generated IDs that don't exist until creation,
+  so the S3-style name-pattern scoping is impossible. Creation requires
+  both `project=flightdeck` and the app's own `flightdeck-app` tag (set by
+  the module); mutations require that app tag on the resource — each
+  deploy role can touch only its own app's pools. The grants live in a
   fourth per-app managed policy (`-deploy-<app>-auth`): adding them to the
   identity policy blew IAM's 6144-char managed-policy size limit on first
   apply.

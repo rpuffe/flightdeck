@@ -688,10 +688,11 @@ data "aws_iam_policy_document" "deploy_data_permissions" {
 # identity policy sits near IAM's 6144-char managed-policy size limit.
 # Pool ARNs contain a server-generated ID that doesn't exist until the pool
 # does, so the S3-style name-pattern scoping is impossible here. Instead,
-# creation requires the mandatory project tag (supplied by the module's
-# provider default_tags) and every mutation requires the same tag on the
-# resource — deliberately looser than the storage grant; noted in the
-# threat model.
+# creation must carry BOTH the mandatory project tag (from the module's
+# provider default_tags) and the app's own flightdeck-app tag (set by the
+# module on the pool), and every mutation requires that same app tag on the
+# resource — so each deploy role can touch only its own app's pools, the
+# tag-based equivalent of the storage grant's name scoping.
 data "aws_iam_policy_document" "deploy_auth_permissions" {
   for_each = local.app_deploy
 
@@ -704,6 +705,12 @@ data "aws_iam_policy_document" "deploy_auth_permissions" {
       test     = "StringEquals"
       variable = "aws:RequestTag/project"
       values   = ["flightdeck"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/flightdeck-app"
+      values   = [each.key]
     }
   }
 
@@ -723,8 +730,8 @@ data "aws_iam_policy_document" "deploy_auth_permissions" {
 
     condition {
       test     = "StringEquals"
-      variable = "aws:ResourceTag/project"
-      values   = ["flightdeck"]
+      variable = "aws:ResourceTag/flightdeck-app"
+      values   = [each.key]
     }
   }
 

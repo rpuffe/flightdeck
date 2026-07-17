@@ -36,6 +36,14 @@ resource "aws_cognito_user_pool" "auth" {
       priority = 1
     }
   }
+
+  # The app-scoped tag the deploy-role auth policy conditions on (bootstrap
+  # oidc.tf): each deploy role can create/mutate only pools carrying its own
+  # app name, not every flightdeck pool. project=flightdeck still comes from
+  # provider default_tags.
+  tags = {
+    flightdeck-app = var.name
+  }
 }
 
 # Public client, PKCE only — no secret is ever generated, so this feature
@@ -49,8 +57,10 @@ resource "aws_cognito_user_pool_client" "auth" {
 
   generate_secret = false
 
+  # Refresh only — no direct credential-API sign-in paths (SRP or
+  # otherwise). The hosted-UI authorization-code flow is the single way in,
+  # exactly what docs/contract.md mandates of apps.
   explicit_auth_flows = [
-    "ALLOW_USER_SRP_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
   ]
 
