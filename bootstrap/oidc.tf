@@ -127,8 +127,11 @@ data "aws_iam_policy_document" "task_permissions_boundary" {
   }
 
   statement {
-    sid       = "ListOwnStorageBuckets"
-    actions   = ["s3:ListBucket"]
+    sid = "ListOwnStorageBuckets"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:ListBucket",
+    ]
     resources = [for bucket in each.value.data_bucket_names : "arn:aws:s3:::${bucket}"]
   }
 
@@ -158,8 +161,11 @@ data "aws_iam_policy_document" "task_storage_permissions" {
   for_each = local.app_services
 
   statement {
-    sid       = "ListEnvironmentStorageBucket"
-    actions   = ["s3:ListBucket"]
+    sid = "ListEnvironmentStorageBucket"
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:ListBucket",
+    ]
     resources = ["arn:aws:s3:::${each.value.bucket_name}"]
   }
 
@@ -678,6 +684,86 @@ data "aws_iam_policy_document" "deploy_data_permissions" {
   }
 }
 
+# Cognito lives in its own per-app policy (not deploy_identity) because the
+# identity policy sits near IAM's 6144-char managed-policy size limit.
+# Pool ARNs contain a server-generated ID that doesn't exist until the pool
+# does, so the S3-style name-pattern scoping is impossible here. Instead,
+# creation requires the mandatory project tag (supplied by the module's
+# provider default_tags) and every mutation requires the same tag on the
+# resource — deliberately looser than the storage grant; noted in the
+# threat model.
+data "aws_iam_policy_document" "deploy_auth_permissions" {
+  for_each = local.app_deploy
+
+  statement {
+    sid       = "CognitoPoolCreate"
+    actions   = ["cognito-idp:CreateUserPool"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/project"
+      values   = ["flightdeck"]
+    }
+  }
+
+  statement {
+    sid = "CognitoPoolMutateTagged"
+    actions = [
+      "cognito-idp:DeleteUserPool",
+      "cognito-idp:UpdateUserPool",
+      "cognito-idp:SetUserPoolMfaConfig",
+      "cognito-idp:TagResource",
+      "cognito-idp:UntagResource",
+      "cognito-idp:CreateUserPoolClient",
+      "cognito-idp:UpdateUserPoolClient",
+      "cognito-idp:DeleteUserPoolClient",
+    ]
+    resources = ["arn:aws:cognito-idp:${var.region}:${data.aws_caller_identity.current.account_id}:userpool/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/project"
+      values   = ["flightdeck"]
+    }
+  }
+
+  # Terraform's refresh reads. Describe calls don't reliably support tag
+  # conditions, so reads are ARN-bounded but not tag-conditioned (mirrors
+  # ElbRead/Ec2Read in the identity policy).
+  statement {
+    sid = "CognitoPoolRead"
+    actions = [
+      "cognito-idp:DescribeUserPool",
+      "cognito-idp:DescribeUserPoolClient",
+      "cognito-idp:GetUserPoolMfaConfig",
+      "cognito-idp:ListTagsForResource",
+    ]
+    resources = ["arn:aws:cognito-idp:${var.region}:${data.aws_caller_identity.current.account_id}:userpool/*"]
+  }
+
+  # Hosted-UI domain actions authorize inconsistently against the userpool
+  # resource (DescribeUserPoolDomain takes only the domain prefix, no pool
+  # id), so this is the one unavoidable wildcard — kept to the three domain
+  # actions and bound to Flightdeck's region, same pattern as
+  # EcsTaskDefinitionDelete in the infrastructure policy.
+  statement {
+    sid = "CognitoPoolDomains"
+    actions = [
+      "cognito-idp:CreateUserPoolDomain",
+      "cognito-idp:DeleteUserPoolDomain",
+      "cognito-idp:DescribeUserPoolDomain",
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.region]
+    }
+  }
+}
+
 resource "aws_iam_policy" "deploy_infrastructure" {
   for_each = local.app_deploy
 
@@ -721,6 +807,21 @@ resource "aws_iam_role_policy_attachment" "deploy_data" {
 
   role       = aws_iam_role.deploy[each.key].name
   policy_arn = aws_iam_policy.deploy_data[each.key].arn
+}
+
+resource "aws_iam_policy" "deploy_auth" {
+  for_each = local.app_deploy
+
+  name        = "${local.name_prefix}-deploy-${each.key}-auth"
+  description = "Optional Cognito user pool lifecycle managed by the ${each.key} deploy role"
+  policy      = data.aws_iam_policy_document.deploy_auth_permissions[each.key].json
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_auth" {
+  for_each = local.app_deploy
+
+  role       = aws_iam_role.deploy[each.key].name
+  policy_arn = aws_iam_policy.deploy_auth[each.key].arn
 }
 
 output "oidc_provider_arn" {

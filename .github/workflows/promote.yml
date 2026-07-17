@@ -96,7 +96,7 @@ jobs:
     needs: resolve
     # Fully-qualified ref on purpose — nested ./ refs resolve against the
     # CALLING repo and break (see deploy.yml's comment).
-    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.5.1
+    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.6.0
     with:
       image: ${{ needs.resolve.outputs.image }}
       environment: "prod"

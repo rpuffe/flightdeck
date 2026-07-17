@@ -27,3 +27,8 @@ output "storage_bucket" {
   description = "Name of the app's S3 storage bucket when storage = \"s3\", null otherwise"
   value       = one(aws_s3_bucket.data[*].bucket)
 }
+
+output "auth_user_pool_id" {
+  description = "ID of the app's Cognito user pool when auth = \"cognito\", null otherwise"
+  value       = one(aws_cognito_user_pool.auth[*].id)
+}

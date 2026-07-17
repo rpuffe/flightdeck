@@ -32,7 +32,7 @@ class ReleaseConsistencyTests(unittest.TestCase):
 
     def run_check(self):
         return subprocess.run(
-            ["python3", str(SCRIPT), "--root", str(self.root), "--tag", "v0.5.1"],
+            ["python3", str(SCRIPT), "--root", str(self.root), "--tag", "v0.6.0"],
             text=True,
             capture_output=True,
         )

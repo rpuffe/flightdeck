@@ -183,6 +183,16 @@ and only permission), and injects `STORAGE_BUCKET` (a reserved env key).
 Absent = pre-v0.4.0 behavior, byte-identical. Healthchecks must never depend
 on storage; data is destroyed with the stack.
 
+**v0.6.0 addition — `auth: cognito` (optional).** Justified the same way: the
+studio app is the first whose spec needs users to sign in and own their data.
+When set, the platform creates a Cognito user pool per environment, a public
+(secretless, PKCE) app client, and a hosted-login domain, and injects the
+reserved env keys `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`,
+`COGNITO_DOMAIN`, and `COGNITO_ISSUER`. The task role stays permissionless:
+apps verify tokens against the issuer's public JWKS — no AWS API calls, no
+credentials, no secrets. Absent = prior behavior, byte-identical. Healthchecks
+must never depend on auth; user accounts are destroyed with the stack.
+
 ## 7. The agent contract — structure (v0.2.0, restructured from one CONVENTIONS.md)
 
 Redesigned after Stage 3 as a developer tool rather than a monolithic context
@@ -326,6 +336,35 @@ by owner decision):**
 - Design was subagent-reviewed before build (GO WITH CHANGES; all six
   findings incorporated, including a verified tag-discovery bug).
 
+**Decided (2026-07-17, v0.6.0 — first identity feature):**
+- `auth: cognito` manifest field per §6's v0.6.0 note. Per-app,
+  **per-environment** user pools — deliberately NOT one shared pool: the
+  pool's lifecycle stays inside the app's own state (destroy semantics of
+  §5b hold), dev/prod user isolation falls out of the same svc_name keying
+  the storage bucket uses, and a pool misconfiguration can only ever affect
+  one app. A shared SSO pool is parked in §11 until a real cross-app
+  identity need exists; migration is additive (the `auth:` enum grows a
+  value, the module wires a client into a bootstrap-owned pool instead).
+- Public app client + PKCE, no client secret — deliberately avoids any
+  dependency on the unbuilt `secrets:` field (§11): everything injected is
+  non-secret. Confidential clients are revisited if/when SSM secrets ship.
+- Task role stays permissionless. Token verification uses the pool's public
+  JWKS endpoint; Cognito admin APIs (AdminCreateUser etc.) get a scoped
+  task grant only when an app proves the need (§6 rule applies to IAM too).
+- Deploy-role Cognito grants are tag-conditioned
+  (`aws:RequestTag`/`aws:ResourceTag` `project=flightdeck`) rather than
+  name-scoped: pool ARNs contain server-generated IDs that don't exist
+  until creation, so the S3-style name-pattern scoping is impossible.
+  Deliberately looser; noted in the threat model. The grants live in a
+  fourth per-app managed policy (`-deploy-<app>-auth`): adding them to the
+  identity policy blew IAM's 6144-char managed-policy size limit on first
+  apply.
+- Hosted-login domain prefix is `flightdeck-<svc>-<account-id>` (Cognito
+  domain prefixes are region-global across all AWS accounts, same reason
+  bucket names embed the account id). Callback path is fixed at
+  `/auth/callback` by convention; a localhost callback exists on the dev
+  client only — prod never accepts a local redirect target.
+
 **Decided (2026-07-12 — fleet cooling, second day-2 graduation by owner
 decision):**
 - One reusable scaler Lambda, two front doors: EventBridge Scheduler cron
@@ -375,6 +414,16 @@ writeup exists. Roughly ordered by value-per-effort, not chronology.
   (web | worker | scheduled). Proves the contract generalizes.
 - **RDS/Aurora module** — optional `database:` block in the manifest. Brings the
   platform closer to real app shapes; state and teardown get harder, so v2 not v1.
+- **Shared SSO user pool** — one bootstrap-owned Cognito pool with an app
+  client per service: one account works across every flightdeck app. Parked
+  until a real cross-app identity need exists; the v0.6.0 per-app `auth:`
+  design migrates additively (enum grows a shared value).
+- **ALB-enforced auth** — the `authenticate-cognito` listener action gates an
+  entire service behind login with zero app code. Uniform-gate semantics
+  (no public routes) make it a variant, not a replacement, of `auth: cognito`.
+- **Cognito admin-API task grant** — scoped task-role access to admin flows
+  (AdminCreateUser, admin group management) when an app's spec needs
+  server-driven user management; v0.6.0 apps verify JWTs only.
 
 ### v3 — developer/agent experience
 - **Thin CLI** — Python/Click wrapper over the Makefile targets, agent-generated in

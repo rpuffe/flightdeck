@@ -40,7 +40,7 @@ default, IAM user `agent-infra-tool` (static creds).
   `.github/workflows/deploy.yml` + `promote.yml`, template-app `ci.yml` refs +
   `main.tf ?ref=`, and write the tag into `template-app/.flightdeck-version`.
 
-## Architecture (current, platform tag v0.5.1)
+## Architecture (current, platform tag v0.6.0)
 - `bootstrap/` — account-level stack (S3 state backend w/ native lockfile; GitHub
   OIDC provider + `flightdeck-deploy` role; VPC + fck-nat t4g.nano; ECR
   repo-per-app; DNS child zone fd.robertpuffe.com + wildcard ACM; shared ALB w/

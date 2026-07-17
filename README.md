@@ -19,7 +19,7 @@ contract, the platform grew a full pipeline — pull requests run credential-fre
 checks, pushes to `main` deploy a dev environment, version tags promote the
 exact same image to prod — plus optional per-app S3 storage and a one-command
 lifecycle for both the platform and app repos (`make new-app`, `make upgrade`).
-Latest tagged release: **v0.5.1**. `main` contains the next unreleased
+Latest tagged release: **v0.6.0**. `main` contains the next unreleased
 hardening release; app repos remain on their pinned tag until that release is
 cut and deliberately adopted.
 
