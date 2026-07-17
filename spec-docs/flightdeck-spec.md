@@ -129,6 +129,11 @@ app-a/
 - State: per-app keys in the shared bootstrap bucket, injected by the reusable
   workflow at init time (`terraform init -backend-config="key=apps/<name>/tfstate"`).
   Backend config never appears in app repos.
+- Identity: each app deploy role trusts both the repository's legacy name-based
+  GitHub OIDC subject and its exact immutable owner/repository-ID subject. The
+  bootstrap registry records those IDs; no wildcard IDs are accepted. This
+  keeps repositories on either side of GitHub's 2026-07-15 rollout compatible
+  without weakening repository-specific trust.
 - Upgrades: platform ships as tags; apps adopt by bumping two refs.
 - Rejected: manifest-only app repos (workflow generates TF at deploy time).
   That recreates Copilot's hidden-codegen liability; 15 visible boilerplate

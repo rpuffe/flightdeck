@@ -18,6 +18,15 @@ locals {
       state_object_keys      = ["apps/${app}/terraform.tfstate", "apps/${app}/terraform.tfstate.tflock", "apps/${app}/dev/terraform.tfstate", "apps/${app}/dev/terraform.tfstate.tflock"]
       state_list_prefix      = "apps/${app}/*"
       github_repository_name = app
+      github_repository_id   = lookup(var.github_repository_ids, app, "")
+      github_subjects = compact([
+        # Repositories created before GitHub's 2026-07-15 immutable-subject
+        # rollout retain this legacy name-based identity unless they opt in.
+        "repo:${var.github_owner}/${app}",
+        # New, renamed, transferred, or opted-in repositories include stable
+        # owner and repository IDs so namespace recycling cannot inherit trust.
+        lookup(var.github_repository_ids, app, "") != "" ? "repo:${var.github_owner}@${var.github_owner_id}/${app}@${var.github_repository_ids[app]}" : "",
+      ])
     }
   }
 
@@ -55,10 +64,12 @@ data "aws_iam_policy_document" "github_actions_assume" {
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values = [
-        "repo:${var.github_owner}/${each.value.github_repository_name}:ref:refs/heads/main",
-        "repo:${var.github_owner}/${each.value.github_repository_name}:ref:refs/tags/v*",
-      ]
+      values = flatten([
+        for subject in each.value.github_subjects : [
+          "${subject}:ref:refs/heads/main",
+          "${subject}:ref:refs/tags/v*",
+        ]
+      ])
     }
   }
 }
@@ -68,6 +79,13 @@ resource "aws_iam_role" "deploy" {
 
   name               = each.value.role_name
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume[each.key].json
+
+  lifecycle {
+    precondition {
+      condition     = each.value.github_repository_id != ""
+      error_message = "Registered app ${each.key} is missing its immutable GitHub repository ID in var.github_repository_ids. Create the GitHub repository, record its numeric ID, then re-run bootstrap."
+    }
+  }
 }
 
 # Every task and execution role created by an app deployment must carry this

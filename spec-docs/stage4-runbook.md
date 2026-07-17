@@ -8,11 +8,12 @@ in the README compatibility table.
 
 1. **Onboard a fresh app** (platform side, ~2 min):
    - Pick a name (dns-safe, ≤20 chars — e.g. `chores` for Cursor).
-   - Add it to the `apps` registry in `bootstrap/variables.tf`; run
-     `make bootstrap` (2 adds: ECR repo + lifecycle policy).
    - Create the repo from `template-app/` contents plus `APP_SPEC.md`
      (copy spec-docs/todo-app-spec.md, retitle, change the default greeting
      string so each agent's deploy is distinguishable).
+   - Add it to the `apps` registry and add its numeric GitHub repository ID to
+     `github_repository_ids` in `bootstrap/variables.tf`; run `make bootstrap`
+     (ECR repositories plus the exact repository-specific OIDC role).
    - Set the repo variable `FLIGHTDECK_DEPLOY_ROLE_ARN` (value:
      `terraform -chdir=bootstrap output -raw deploy_role_arn`).
    - Push the baseline. (The baseline push triggers one failing noise run

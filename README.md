@@ -150,8 +150,11 @@ any dependency bump.
    `template-app/`, sets its manifest name, `git init`s it, and registers it
    in the `apps` list in `bootstrap/variables.tf` — one command, replacing
    what used to be manual copying. It prints the remaining deliberate steps:
-   `make bootstrap` (creates the app's dev/prod ECR repos), `gh repo create`, and
-   setting one repo variable (`FLIGHTDECK_DEPLOY_ROLE_ARN`).
+   create the GitHub repository, record its immutable repository ID in
+   `github_repository_ids`, run `make bootstrap` (creates the app's dev/prod
+   ECR repos and repository-specific deploy role), and set one repo variable
+   (`FLIGHTDECK_DEPLOY_ROLE_ARN`). The repository must exist before bootstrap
+   because new GitHub repositories include its immutable ID in OIDC subjects.
 3. **Build the app**: write the code yourself, or hand a coding agent the app
    spec plus the repo — the contract (`AGENTS.md`, schema, `make preflight`)
    is all the context it needs.
@@ -167,7 +170,9 @@ platform scope, not a complete production security program. See the
 [threat model](spec-docs/threat-model.md) for residual risk and required
 hardening.
 
-- **Per-app OIDC roles** — each registered repository gets its own deploy role
+- **Per-app OIDC roles** — each registered repository gets its own deploy role;
+  trust accepts its exact legacy name-based and immutable ID-based GitHub OIDC
+  subjects so both pre- and post-2026-07-15 repositories follow the same path
   (`bootstrap/oidc.tf`), trusted only for that exact repository's `main` branch
   and `v*` tags. No long-lived AWS access keys exist in any repo or secret
   store.
