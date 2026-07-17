@@ -24,7 +24,8 @@ that, the platform already provides it, or v1 doesn't support it. **The one
 sanctioned exception**: if the manifest sets `storage: s3`, S3 SDK calls
 against your injected `STORAGE_BUCKET` are allowed — see Storage below. That
 is the entire exception; no other AWS SDK calls, and no calls to any bucket
-other than the injected one.
+other than the injected one. (`auth: cognito` adds no exception — sign-in
+uses plain OIDC over HTTPS, no AWS SDK involved; see Auth below.)
 
 ## What your app must do
 
@@ -81,3 +82,43 @@ IAM policy.
   built for a teardown-first platform. Tearing down this app's stack deletes
   the bucket and everything in it, permanently. Don't treat this as durable
   backup storage across a full teardown/rebuild cycle.
+
+## Auth (optional)
+
+Set `auth: cognito` in `app-manifest.yaml` if the spec needs users to sign
+in. Nothing else to configure — no user pool, no OAuth app registration, no
+client secret, no IAM.
+
+- **What arrives**: four env vars, all reserved keys (`make preflight`
+  rejects a manifest that also defines them in `env:`):
+  - `COGNITO_USER_POOL_ID` — the pool id.
+  - `COGNITO_CLIENT_ID` — the app client id.
+  - `COGNITO_DOMAIN` — the hosted-login hostname (no scheme).
+  - `COGNITO_ISSUER` — the OIDC issuer URL; token verification and
+    discovery (`$COGNITO_ISSUER/.well-known/openid-configuration`) hang
+    off it.
+- **How to use it**: standard OIDC authorization-code flow **with PKCE**
+  against the hosted UI at `https://$COGNITO_DOMAIN`. The client is public —
+  there is no client secret; if a library insists on one, configure it as a
+  public client. Redirect URI must be exactly
+  `https://<your-url>/auth/callback` — that path is registered by the
+  platform, so implement your callback handler there. Verify JWTs against
+  `$COGNITO_ISSUER/.well-known/jwks.json` (check issuer, audience =
+  `COGNITO_CLIENT_ID`, expiry).
+- **No AWS involved**: sign-in, token exchange, and verification are plain
+  HTTPS to Cognito's public endpoints — no AWS SDK calls, no credentials.
+  The task role stays permissionless; Cognito admin APIs (server-side user
+  creation etc.) are not supported in this version — if the spec needs
+  them, stop and flag it.
+- **Per-environment isolation**: dev and prod each get their own pool. User
+  accounts never cross. The dev client additionally allows
+  `http://localhost:<port>/auth/callback` for local testing against the
+  dev pool; the prod client accepts only the real URL.
+- **Graceful degradation is part of the contract, not optional.** With no
+  `auth:` set, or when running locally (`make preflight` / `make run`), the
+  `COGNITO_*` vars are unset — your app **must still boot and pass its
+  healthcheck**. The healthcheck path must never require login; when the
+  vars are absent, run with sign-in disabled rather than crashing.
+- **User accounts are destroyed with the stack.** The pool has deletion
+  protection off — teardown-first platform. Tearing down this app's stack
+  deletes the pool and every user in it, permanently.

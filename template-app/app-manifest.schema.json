@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/rpuffe/flightdeck/blob/main/template-app/app-manifest.schema.json",
   "title": "flightdeck app-manifest",
-  "description": "The flightdeck app-manifest contract (v1, spec §6). Six required/optional core fields plus the optional 'storage' opt-in, nothing else — CI supplies the image, never add an image field.",
+  "description": "The flightdeck app-manifest contract (v1, spec §6). Six required/optional core fields plus the optional 'storage' and 'auth' opt-ins, nothing else — CI supplies the image, never add an image field.",
   "type": "object",
   "properties": {
     "name": {
@@ -33,12 +33,18 @@
     },
     "env": {
       "type": "object",
-      "description": "Non-secret config only — NO secrets, tokens, or credentials; v1 has no secret support. Flat map of string keys to string values. STORAGE_BUCKET is reserved — the platform injects it when 'storage: s3' is set; do not define it here.",
+      "description": "Non-secret config only — NO secrets, tokens, or credentials; v1 has no secret support. Flat map of string keys to string values. STORAGE_BUCKET and the COGNITO_* keys are reserved — the platform injects them when 'storage: s3' / 'auth: cognito' are set; do not define them here.",
       "additionalProperties": {
         "type": "string"
       },
       "not": {
-        "required": ["STORAGE_BUCKET"]
+        "anyOf": [
+          { "required": ["STORAGE_BUCKET"] },
+          { "required": ["COGNITO_USER_POOL_ID"] },
+          { "required": ["COGNITO_CLIENT_ID"] },
+          { "required": ["COGNITO_DOMAIN"] },
+          { "required": ["COGNITO_ISSUER"] }
+        ]
       },
       "default": {}
     },
@@ -46,6 +52,11 @@
       "type": "string",
       "enum": ["s3"],
       "description": "Opt in to a private, encrypted S3 bucket for this environment (dev and prod get separate buckets). Grants the app's task role access to exactly that bucket and nothing else. The bucket name arrives via the STORAGE_BUCKET env var — do not set that key yourself in 'env'. Data is destroyed with the stack (see docs/contract.md)."
+    },
+    "auth": {
+      "type": "string",
+      "enum": ["cognito"],
+      "description": "Opt in to a Cognito user pool for this environment (dev and prod get separate pools) with a public PKCE app client and hosted login UI. Identifiers arrive via the reserved COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_DOMAIN, and COGNITO_ISSUER env vars — do not set those keys yourself in 'env'. No AWS SDK calls or client secret involved; verify tokens against the issuer's JWKS. User accounts are destroyed with the stack (see docs/contract.md)."
     }
   },
   "required": ["name", "port", "healthcheck", "cpu", "memory"],

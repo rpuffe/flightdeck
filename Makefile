@@ -200,10 +200,11 @@ destroy-bootstrap:
 
 # --- App onboarding ----------------------------------------------------------
 # Scaffolds a new app repo from template-app/ as a sibling of this checkout
-# and registers it in the apps list. Deliberately does NOT run gh, apply
+# and registers its name in the apps list. Deliberately does NOT run gh, apply
 # terraform, or push anything — those are separate, deliberate steps (see
 # NEXT STEPS below): repo creation and infra applies are deliberate actions,
-# scaffolding is the mechanical part.
+# scaffolding is the mechanical part. GitHub's immutable OIDC identity also
+# requires the repository's numeric ID before bootstrap can create its role.
 new-app:
 	@test -n "$(NAME)" || { echo "usage: make new-app NAME=<name>"; exit 1; }
 	@echo "$(NAME)" | grep -Eq '^[a-z][a-z0-9-]{0,15}$$' || { \
@@ -231,7 +232,9 @@ new-app:
 	@echo "Scaffolded ../$(NAME) and registered it in $(BOOTSTRAP)/variables.tf."
 	@echo "NEXT STEPS (manual — repo creation and infra applies are deliberate"
 	@echo "actions, scaffolding is the mechanical part):"
-	@echo "  1) review the registry diff, then: make bootstrap   (creates IAM + dev/prod ECR for $(NAME))"
+	@echo "  1) review the registry diff"
 	@echo "  2) gh repo create $(NAME) --public --source ../$(NAME)"
-	@echo "  3) gh variable set FLIGHTDECK_DEPLOY_ROLE_ARN --repo <owner>/$(NAME) --body \"arn:aws:iam::$(ACCOUNT_ID):role/flightdeck-deploy-$(NAME)\""
-	@echo "  4) git -C ../$(NAME) push -u origin main   ->  https://$(NAME)-dev.$(APP_DOMAIN)"
+	@echo '  3) add $(NAME) = "$$(gh api repos/<owner>/$(NAME) --jq .id)" to github_repository_ids in $(BOOTSTRAP)/variables.tf'
+	@echo "  4) make bootstrap   (creates IAM + dev/prod ECR for $(NAME))"
+	@echo "  5) gh variable set FLIGHTDECK_DEPLOY_ROLE_ARN --repo <owner>/$(NAME) --body \"arn:aws:iam::$(ACCOUNT_ID):role/flightdeck-deploy-$(NAME)\""
+	@echo "  6) git -C ../$(NAME) push -u origin main   ->  https://$(NAME)-dev.$(APP_DOMAIN)"

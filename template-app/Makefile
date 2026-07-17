@@ -41,12 +41,12 @@ check-tools:
 validate-manifest:
 	@test -f $(MANIFEST) || { echo "$(MANIFEST) not found at repo root → see docs/contract.md"; exit 1; }
 	@for k in $$(yq 'keys | .[]' $(MANIFEST)); do \
-	  case " name port healthcheck cpu memory env storage " in \
+	  case " name port healthcheck cpu memory env storage auth " in \
 	    *" $$k "*) : ;; \
 	    *) if [ "$$k" = "image" ]; then \
 	         echo "app-manifest.yaml has an 'image' field — CI supplies the image, never add one → see docs/contract.md"; \
 	       else \
-	         echo "app-manifest.yaml has unknown field '$$k' — only name, port, healthcheck, cpu, memory, env are allowed → see docs/contract.md"; \
+	         echo "app-manifest.yaml has unknown field '$$k' — only name, port, healthcheck, cpu, memory, env, storage, auth are allowed → see docs/contract.md"; \
 	       fi; \
 	       exit 1 ;; \
 	  esac; \
@@ -94,10 +94,14 @@ validate-manifest:
 	fi
 	@if [ "$$(yq '.env' $(MANIFEST))" != "null" ]; then \
 	  for k in $$(yq '.env | keys | .[]' $(MANIFEST)); do \
-	    if [ "$$k" = "STORAGE_BUCKET" ]; then \
-	      echo "env.STORAGE_BUCKET is reserved — the platform injects it when storage: s3 is set, don't define it yourself → see docs/contract.md"; \
-	      exit 1; \
-	    fi; \
+	    case "$$k" in \
+	      STORAGE_BUCKET) \
+	        echo "env.STORAGE_BUCKET is reserved — the platform injects it when storage: s3 is set, don't define it yourself → see docs/contract.md"; \
+	        exit 1 ;; \
+	      COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_DOMAIN|COGNITO_ISSUER) \
+	        echo "env.$$k is reserved — the platform injects it when auth: cognito is set, don't define it yourself → see docs/contract.md"; \
+	        exit 1 ;; \
+	    esac; \
 	    t=$$(yq ".env.$$k | tag" $(MANIFEST)); \
 	    if [ "$$t" != "!!str" ]; then \
 	      echo "env.$$k must be a string value (found $$t) → see docs/contract.md"; \
@@ -109,6 +113,13 @@ validate-manifest:
 	  storage=$$(yq '.storage' $(MANIFEST)); \
 	  if [ "$$storage" != "s3" ]; then \
 	    echo "storage '$$storage' is invalid — only 's3' is supported → see docs/contract.md"; \
+	    exit 1; \
+	  fi; \
+	fi
+	@if [ "$$(yq '.auth' $(MANIFEST))" != "null" ]; then \
+	  auth=$$(yq '.auth' $(MANIFEST)); \
+	  if [ "$$auth" != "cognito" ]; then \
+	    echo "auth '$$auth' is invalid — only 'cognito' is supported → see docs/contract.md"; \
 	    exit 1; \
 	  fi; \
 	fi

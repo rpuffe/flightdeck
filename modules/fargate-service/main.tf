@@ -12,15 +12,21 @@ data "aws_caller_identity" "current" {}
 locals {
   svc_name = var.environment == "prod" ? var.name : "${var.name}-${var.environment}"
 
-  # Built via merge() with a {}-default branch (never by indexing
-  # aws_s3_bucket.data[0] directly), so this tolerates the bucket's
-  # count = 0 in the no-storage path and the merge is a no-op: storage = ""
-  # (the default) renders a container env byte-identical to pre-v0.4.0,
-  # since merge(var.env, {}) has exactly var.env's keys and STORAGE_BUCKET
-  # never appears.
+  # Built via merge() with {}-default branches (never by indexing
+  # aws_s3_bucket.data[0] etc. directly), so this tolerates count = 0 on
+  # every optional resource and each unused opt-in is a no-op: with the
+  # defaults (storage = "", auth = "") the rendered container env is
+  # byte-identical to the plain-env path, since merge(var.env, {}, {}) has
+  # exactly var.env's keys and no reserved key ever appears.
   container_env = merge(
     var.env,
-    var.storage == "s3" ? { STORAGE_BUCKET = one(aws_s3_bucket.data[*].bucket) } : {}
+    var.storage == "s3" ? { STORAGE_BUCKET = one(aws_s3_bucket.data[*].bucket) } : {},
+    var.auth == "cognito" ? {
+      COGNITO_USER_POOL_ID = one(aws_cognito_user_pool.auth[*].id)
+      COGNITO_CLIENT_ID    = one(aws_cognito_user_pool_client.auth[*].id)
+      COGNITO_DOMAIN       = "${one(aws_cognito_user_pool_domain.auth[*].domain)}.auth.${data.aws_region.current.region}.amazoncognito.com"
+      COGNITO_ISSUER       = "https://cognito-idp.${data.aws_region.current.region}.amazonaws.com/${one(aws_cognito_user_pool.auth[*].id)}"
+    } : {}
   )
 }
 

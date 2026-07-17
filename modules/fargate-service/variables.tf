@@ -60,6 +60,11 @@ variable "env" {
     condition     = !contains(keys(var.env), "STORAGE_BUCKET")
     error_message = "env.STORAGE_BUCKET is reserved — the platform injects it when storage: s3 is set"
   }
+
+  validation {
+    condition     = length(setintersection(keys(var.env), ["COGNITO_USER_POOL_ID", "COGNITO_CLIENT_ID", "COGNITO_DOMAIN", "COGNITO_ISSUER"])) == 0
+    error_message = "env.COGNITO_* keys are reserved — the platform injects them when auth: cognito is set"
+  }
 }
 
 variable "storage" {
@@ -70,6 +75,17 @@ variable "storage" {
   validation {
     condition     = contains(["", "s3"], var.storage)
     error_message = "storage must be \"\" (no storage, the default) or \"s3\"."
+  }
+}
+
+variable "auth" {
+  description = "Optional platform authentication. \"\" (default) = none, no new resources. \"cognito\" = a per-environment Cognito user pool with a public (PKCE, secretless) app client and hosted login UI; pool/client identifiers are injected as the reserved COGNITO_* env vars. The task role gains no permissions — apps verify tokens against the pool's public JWKS."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = contains(["", "cognito"], var.auth)
+    error_message = "auth must be \"\" (no auth, the default) or \"cognito\"."
   }
 }
 
