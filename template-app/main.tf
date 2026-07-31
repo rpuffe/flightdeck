@@ -67,7 +67,7 @@ locals {
 }
 
 module "app" {
-  source = "git::https://github.com/rpuffe/flightdeck.git//modules/fargate-service?ref=v0.6.0"
+  source = "git::https://github.com/rpuffe/flightdeck.git//modules/fargate-service?ref=v0.7.0"
 
   name             = local.manifest.name
   port             = local.manifest.port
@@ -77,6 +77,7 @@ module "app" {
   env              = try(local.manifest.env, {})
   storage          = try(local.manifest.storage, "")
   auth             = try(local.manifest.auth, "")
+  alerts           = try(local.manifest.alerts, [])
 
   image       = var.image
   environment = var.environment
@@ -87,6 +88,7 @@ module "app" {
   alb_security_group_id = data.terraform_remote_state.bootstrap.outputs.alb_security_group_id
   https_listener_arn    = data.terraform_remote_state.bootstrap.outputs.https_listener_arn
   child_zone_name       = data.terraform_remote_state.bootstrap.outputs.child_zone_name
+  alerts_topic_arn      = data.terraform_remote_state.bootstrap.outputs.alerts_topic_arn
 }
 
 output "url" {
