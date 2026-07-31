@@ -626,7 +626,9 @@ data "aws_iam_policy_document" "deploy_data_permissions" {
       "s3:ListBucketVersions",
       "s3:PutBucketPublicAccessBlock",
       "s3:PutBucketTagging",
+      "s3:PutBucketVersioning",
       "s3:PutEncryptionConfiguration",
+      "s3:PutLifecycleConfiguration",
     ]
     resources = [for bucket in each.value.data_bucket_names : "arn:aws:s3:::${bucket}"]
   }

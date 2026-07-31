@@ -111,10 +111,11 @@ validate-manifest:
 	fi
 	@if [ "$$(yq '.storage' $(MANIFEST))" != "null" ]; then \
 	  storage=$$(yq '.storage' $(MANIFEST)); \
-	  if [ "$$storage" != "s3" ]; then \
-	    echo "storage '$$storage' is invalid — only 's3' is supported → see docs/contract.md"; \
-	    exit 1; \
-	  fi; \
+	  case "$$storage" in \
+	    s3|s3-retained) : ;; \
+	    *) echo "storage '$$storage' is invalid — only 's3' or 's3-retained' is supported → see docs/contract.md"; \
+	       exit 1 ;; \
+	  esac; \
 	fi
 	@if [ "$$(yq '.auth' $(MANIFEST))" != "null" ]; then \
 	  auth=$$(yq '.auth' $(MANIFEST)); \

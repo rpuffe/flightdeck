@@ -20,7 +20,7 @@ locals {
   # exactly var.env's keys and no reserved key ever appears.
   container_env = merge(
     var.env,
-    var.storage == "s3" ? { STORAGE_BUCKET = one(aws_s3_bucket.data[*].bucket) } : {},
+    var.storage != "" ? { STORAGE_BUCKET = one(aws_s3_bucket.data[*].bucket) } : {},
     var.auth == "cognito" ? {
       COGNITO_USER_POOL_ID = one(aws_cognito_user_pool.auth[*].id)
       COGNITO_CLIENT_ID    = one(aws_cognito_user_pool_client.auth[*].id)
