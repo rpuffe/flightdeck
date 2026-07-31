@@ -212,6 +212,15 @@ resource "aws_ecs_service" "app" {
   desired_count   = 1
   launch_type     = "FARGATE"
 
+  # Stateful services (any storage opt-in) deploy stop-then-start: the old
+  # task is stopped and drained before the replacement starts, so a local
+  # database replicating to the bucket never has two concurrent writers.
+  # Costs ~a minute of deploy downtime; correct for desired_count = 1 state.
+  # Stateless services keep the ECS defaults (200/100) — zero-downtime
+  # rolling deploys and a byte-identical plan.
+  deployment_maximum_percent         = var.storage != "" ? 100 : 200
+  deployment_minimum_healthy_percent = var.storage != "" ? 0 : 100
+
   network_configuration {
     subnets          = var.private_subnet_ids
     security_groups  = [aws_security_group.service.id]

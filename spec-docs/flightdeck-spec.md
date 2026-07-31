@@ -183,6 +183,16 @@ and only permission), and injects `STORAGE_BUCKET` (a reserved env key).
 Absent = pre-v0.4.0 behavior, byte-identical. Healthchecks must never depend
 on storage; data is destroyed with the stack.
 
+**v0.7.0 amendment — storage implies single-writer deploys.** A storage
+opt-in also changes deploy semantics: the service deploys stop-then-start
+(`deployment_maximum_percent = 100`, `minimum_healthy_percent = 0`), so the
+old task is drained before the replacement starts and a local database
+replicating to the bucket never has two concurrent writers. Justified by the
+studio app going into production use with SQLite + Litestream: the ECS
+defaults overlap old and new tasks on every rolling deploy, which risks two
+replication processes writing the same replica. Stateless services keep the
+ECS defaults — zero-downtime deploys, byte-identical plans.
+
 **v0.6.0 addition — `auth: cognito` (optional).** Justified the same way: the
 studio app is the first whose spec needs users to sign in and own their data.
 When set, the platform creates a Cognito user pool per environment, a public
