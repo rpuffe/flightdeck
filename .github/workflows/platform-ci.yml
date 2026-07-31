@@ -39,10 +39,21 @@ jobs:
         run: terraform fmt -check -recursive bootstrap modules examples template-app
 
       - name: Terraform validate
+        # The template pins the module by release tag, which doesn't exist yet
+        # on a release-prep PR (the tag is pushed after merge). Overriding the
+        # module source to the in-repo path breaks that cycle and validates
+        # the pair that actually ships together at a tag: this commit's
+        # template against this commit's module.
         run: |
           make validate
+          cat > template-app/validate_override.tf <<'EOT'
+          module "app" {
+            source = "../modules/fargate-service"
+          }
+          EOT
           terraform -chdir=template-app init -input=false -backend=false
           terraform -chdir=template-app validate
+          rm template-app/validate_override.tf
 
       - name: Validate manifest contract
         run: |
