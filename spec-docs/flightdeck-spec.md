@@ -93,7 +93,7 @@ repo: flightdeck (github.com/rpuffe/flightdeck, public)
 │   └── fargate-service/  # THE flagship module, hand-rolled
 │       ├── ECS service + task def (driven by app-manifest values)
 │       ├── ALB listener rule + target group + health check
-│       ├── CloudWatch logs + basic alarms
+│       ├── CloudWatch logs + basic alarms (notify via SNS since v0.7.0)
 │       └── IAM task role (least privilege)
 ├── .github/workflows/    # reusable workflows apps inherit
 │   ├── build-scan-push.yml   (docker build, Trivy image scan, push to ECR)

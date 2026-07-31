@@ -247,8 +247,14 @@ resource "aws_ecs_service" "app" {
 }
 
 # ---------------------------------------------------------------------------
-# Alarms (v1 has no SNS topic, so these have no actions — visibility only)
+# Alarms — publish to the shared alerts topic when the caller wires one in
+# (bootstrap output alerts_topic_arn); with the default "" they stay
+# visibility-only, the pre-v0.7.0 behavior.
 # ---------------------------------------------------------------------------
+
+locals {
+  alarm_actions = var.alerts_topic_arn == "" ? [] : [var.alerts_topic_arn]
+}
 
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   alarm_name          = "flightdeck-${local.svc_name}-cpu-high"
@@ -260,6 +266,8 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   statistic           = "Average"
   threshold           = 80
   treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+  ok_actions          = local.alarm_actions
 
   dimensions = {
     ClusterName = element(split("/", var.cluster_arn), 1)
@@ -277,6 +285,8 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
   statistic           = "Maximum"
   threshold           = 1
   treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+  ok_actions          = local.alarm_actions
 
   dimensions = {
     # No standalone ALB ARN input exists; the load balancer's ARN suffix
