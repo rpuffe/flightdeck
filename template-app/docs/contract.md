@@ -82,6 +82,12 @@ IAM policy.
   built for a teardown-first platform. Tearing down this app's stack deletes
   the bucket and everything in it, permanently. Don't treat this as durable
   backup storage across a full teardown/rebuild cycle.
+- **Deploys are stop-then-start.** Opting into `storage:` changes deploy
+  semantics: the platform stops and drains the old task before starting its
+  replacement, so at most one task ever runs. This guarantees a local
+  database replicating to the bucket never has two concurrent writers, at
+  the cost of roughly a minute of unavailability per deploy. Stateless apps
+  (no `storage:`) keep zero-downtime rolling deploys.
 
 ## Auth (optional)
 
