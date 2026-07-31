@@ -101,6 +101,33 @@ bullets below).
   the cost of roughly a minute of unavailability per deploy. Stateless apps
   (no `storage:`) keep zero-downtime rolling deploys.
 
+## Alerts (optional)
+
+Add an `alerts:` list to `app-manifest.yaml` if some log lines signal a
+failure worth notifying a human about — the classic case is a replication
+or sync process that can fail while the healthcheck stays green:
+
+```yaml
+alerts:
+  - name: replication-error
+    pattern: '"level=ERROR"'
+```
+
+- **What happens**: everything your container prints already lands in a
+  CloudWatch log group. Each entry adds a metric filter on that log group
+  and an alarm: any matching line within a 5-minute window triggers a
+  notification to the platform's alert email.
+- **`name`**: DNS-safe (lowercase/digits/hyphens, starts with a letter,
+  max 32 chars), unique within the list; becomes the alarm-name suffix.
+- **`pattern`**: [CloudWatch Logs filter
+  syntax](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html),
+  passed through verbatim. Quote terms (`'"level=ERROR"'`) to match them
+  literally. Test against real log output — an unmatched pattern alarms
+  never, an over-broad one alarms constantly.
+- **Limits**: at most 10 entries. Alerts are for actionable failures, not
+  log analytics — if you need more, the signal is probably too noisy.
+- Absent = no new resources, exactly the pre-v0.7.0 behavior.
+
 ## Auth (optional)
 
 Set `auth: cognito` in `app-manifest.yaml` if the spec needs users to sign
