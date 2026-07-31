@@ -133,3 +133,9 @@ variable "child_zone_name" {
   description = "FQDN of the flightdeck child zone (e.g. fd.robertpuffe.com). The app is served at https://<name>.<child_zone_name>."
   type        = string
 }
+
+variable "alerts_topic_arn" {
+  description = "ARN of the shared flightdeck-alerts SNS topic. When set, service alarms publish state changes to it; \"\" (default, and the pre-v0.7.0 caller shape) leaves the alarms visibility-only."
+  type        = string
+  default     = ""
+}

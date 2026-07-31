@@ -109,6 +109,27 @@ resource "aws_ecr_lifecycle_policy" "app_dev" {
   })
 }
 
+# Alarm delivery: one account-level topic every service alarm publishes to,
+# emailing the same address the budget alarm uses — one inbox for platform
+# notifications. The email subscription needs a one-time confirmation click
+# after first apply.
+#
+# Documented exception: no KMS encryption on the topic. CloudWatch alarms
+# cannot publish to a topic encrypted with the AWS-managed SNS key, and a
+# customer-managed key is a monthly cost plus key-policy surface to protect
+# alarm state text that contains resource names, no data. AVD-AWS-0095
+# fires HIGH regardless of payload sensitivity.
+#trivy:ignore:aws-0095
+resource "aws_sns_topic" "alerts" {
+  name = "${local.name_prefix}-alerts"
+}
+
+resource "aws_sns_topic_subscription" "alerts_email" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
 # Account-wide by design: tag-scoped budgets require activating the
 # `project` cost allocation tag (24h lag + a console step), so v1 watches
 # the whole account — acceptable in a near-empty personal account.
@@ -155,4 +176,9 @@ output "ecr_repository_urls" {
 output "ecr_dev_repository_urls" {
   description = "Map of app name => development ECR repository URL"
   value       = { for app, repo in aws_ecr_repository.app_dev : app => repo.repository_url }
+}
+
+output "alerts_topic_arn" {
+  description = "ARN of the flightdeck-alerts SNS topic service alarms publish to"
+  value       = aws_sns_topic.alerts.arn
 }
