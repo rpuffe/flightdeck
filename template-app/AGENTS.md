@@ -29,6 +29,11 @@ production-data variant: versioned, survives stack teardown. Either value
 also makes deploys stop-then-start (single-writer guarantee, brief deploy
 downtime).
 
+**Optional `alerts:`** in the manifest turns log-line failure signatures
+(CloudWatch Logs filter patterns) into alarms that email the platform
+operator — for failures a green healthcheck can hide, like a replication
+error. See `docs/contract.md`.
+
 **Optional `auth: cognito`** in the manifest grants a per-environment
 Cognito user pool + hosted login via injected `COGNITO_*` env vars (plain
 OIDC, no AWS SDK, no secrets). Your healthcheck must never require login —

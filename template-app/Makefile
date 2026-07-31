@@ -41,12 +41,12 @@ check-tools:
 validate-manifest:
 	@test -f $(MANIFEST) || { echo "$(MANIFEST) not found at repo root → see docs/contract.md"; exit 1; }
 	@for k in $$(yq 'keys | .[]' $(MANIFEST)); do \
-	  case " name port healthcheck cpu memory env storage auth " in \
+	  case " name port healthcheck cpu memory env storage auth alerts " in \
 	    *" $$k "*) : ;; \
 	    *) if [ "$$k" = "image" ]; then \
 	         echo "app-manifest.yaml has an 'image' field — CI supplies the image, never add one → see docs/contract.md"; \
 	       else \
-	         echo "app-manifest.yaml has unknown field '$$k' — only name, port, healthcheck, cpu, memory, env, storage, auth are allowed → see docs/contract.md"; \
+	         echo "app-manifest.yaml has unknown field '$$k' — only name, port, healthcheck, cpu, memory, env, storage, auth, alerts are allowed → see docs/contract.md"; \
 	       fi; \
 	       exit 1 ;; \
 	  esac; \
@@ -116,6 +116,38 @@ validate-manifest:
 	    *) echo "storage '$$storage' is invalid — only 's3' or 's3-retained' is supported → see docs/contract.md"; \
 	       exit 1 ;; \
 	  esac; \
+	fi
+	@if [ "$$(yq '.alerts' $(MANIFEST))" != "null" ]; then \
+	  count=$$(yq '.alerts | length' $(MANIFEST)); \
+	  if [ "$$count" -gt 10 ] 2>/dev/null; then \
+	    echo "alerts has $$count entries — at most 10 are supported → see docs/contract.md"; \
+	    exit 1; \
+	  fi; \
+	  i=0; \
+	  while [ "$$i" -lt "$$count" ]; do \
+	    for k in $$(yq ".alerts[$$i] | keys | .[]" $(MANIFEST)); do \
+	      case "$$k" in \
+	        name|pattern) : ;; \
+	        *) echo "alerts[$$i] has unknown key '$$k' — only name and pattern are allowed → see docs/contract.md"; exit 1 ;; \
+	      esac; \
+	    done; \
+	    n=$$(yq ".alerts[$$i].name" $(MANIFEST)); \
+	    p=$$(yq ".alerts[$$i].pattern" $(MANIFEST)); \
+	    echo "$$n" | grep -Eq '^[a-z][a-z0-9-]{0,31}$$' || { \
+	      echo "alerts[$$i].name '$$n' is invalid — must match ^[a-z][a-z0-9-]{0,31}$$ → see docs/contract.md"; \
+	      exit 1; \
+	    }; \
+	    if [ "$$p" = "null" ] || [ -z "$$p" ]; then \
+	      echo "alerts[$$i].pattern is missing or empty — must be a CloudWatch Logs filter pattern → see docs/contract.md"; \
+	      exit 1; \
+	    fi; \
+	    i=$$((i + 1)); \
+	  done; \
+	  dupes=$$(yq '.alerts[].name' $(MANIFEST) | sort | uniq -d); \
+	  if [ -n "$$dupes" ]; then \
+	    echo "alerts[].name values must be unique — duplicate(s): $$dupes → see docs/contract.md"; \
+	    exit 1; \
+	  fi; \
 	fi
 	@if [ "$$(yq '.auth' $(MANIFEST))" != "null" ]; then \
 	  auth=$$(yq '.auth' $(MANIFEST)); \

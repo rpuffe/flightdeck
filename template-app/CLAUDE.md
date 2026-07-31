@@ -36,6 +36,11 @@ Cognito user pool + hosted login via injected `COGNITO_*` env vars (plain
 OIDC, no AWS SDK, no secrets). Your healthcheck must never require login —
 see `docs/contract.md`.
 
+**Optional `alerts:`** in the manifest turns log-line failure signatures
+(CloudWatch Logs filter patterns) into alarms that email the platform
+operator — for failures a green healthcheck can hide, like a replication
+error. See `docs/contract.md`.
+
 ## Docs — read the one for the task at hand, not all of them upfront
 
 - `docs/contract.md` — runtime expectations: what your app must do, what the platform already does for you.

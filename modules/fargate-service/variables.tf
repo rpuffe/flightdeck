@@ -78,6 +78,35 @@ variable "storage" {
   }
 }
 
+variable "alerts" {
+  description = "Optional log-pattern alerts. Each entry becomes a CloudWatch Logs metric filter on the service's log group plus an alarm that fires on >= 1 matching line in 5 minutes, publishing to the shared alerts topic. [] (default) = no new resources."
+  type = list(object({
+    name    = string
+    pattern = string
+  }))
+  default = []
+
+  validation {
+    condition     = length(var.alerts) <= 10
+    error_message = "alerts supports at most 10 entries."
+  }
+
+  validation {
+    condition     = alltrue([for a in var.alerts : can(regex("^[a-z][a-z0-9-]{0,31}$", a.name))])
+    error_message = "each alerts[].name must be lowercase alphanumeric/hyphens, start with a letter, and be at most 32 characters."
+  }
+
+  validation {
+    condition     = alltrue([for a in var.alerts : length(a.pattern) > 0])
+    error_message = "each alerts[].pattern must be a non-empty CloudWatch Logs filter pattern."
+  }
+
+  validation {
+    condition     = length(distinct([for a in var.alerts : a.name])) == length(var.alerts)
+    error_message = "alerts[].name values must be unique."
+  }
+}
+
 variable "auth" {
   description = "Optional platform authentication. \"\" (default) = none, no new resources. \"cognito\" = a per-environment Cognito user pool with a public (PKCE, secretless) app client and hosted login UI; pool/client identifiers are injected as the reserved COGNITO_* env vars. The task role gains no permissions — apps verify tokens against the pool's public JWKS."
   type        = string

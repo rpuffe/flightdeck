@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/rpuffe/flightdeck/blob/main/template-app/app-manifest.schema.json",
   "title": "flightdeck app-manifest",
-  "description": "The flightdeck app-manifest contract (v1, spec §6). Six required/optional core fields plus the optional 'storage' and 'auth' opt-ins, nothing else — CI supplies the image, never add an image field.",
+  "description": "The flightdeck app-manifest contract (v1, spec §6). Six required/optional core fields plus the optional 'storage', 'auth', and 'alerts' opt-ins, nothing else — CI supplies the image, never add an image field.",
   "type": "object",
   "properties": {
     "name": {
@@ -52,6 +52,28 @@
       "type": "string",
       "enum": ["s3", "s3-retained"],
       "description": "Opt in to a private, encrypted S3 bucket for this environment (dev and prod get separate buckets). Grants the app's task role access to exactly that bucket and nothing else. The bucket name arrives via the STORAGE_BUCKET env var — do not set that key yourself in 'env'. 's3': data is destroyed with the stack. 's3-retained': the bucket is versioned (90-day noncurrent retention) and survives a stack teardown — terraform cannot delete it while it holds data. Either value also switches the service to stop-then-start deploys so at most one task ever writes (see docs/contract.md)."
+    },
+    "alerts": {
+      "type": "array",
+      "maxItems": 10,
+      "description": "Optional log-pattern alerts. Each entry becomes a CloudWatch Logs metric filter on the app's log group plus an alarm that fires on any matching log line within 5 minutes and notifies the platform's alert email. Use for failure signatures worth waking a human for (e.g. a replication sidecar's error lines). Patterns use CloudWatch Logs filter syntax and are passed through verbatim.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "description": "DNS-safe suffix for the alarm and metric-filter names. Lowercase letters, digits, hyphens; starts with a letter; max 32 chars; unique within the list."
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "CloudWatch Logs filter pattern matched against every log line, e.g. \"level=ERROR\" (quotes included for term matching)."
+          }
+        },
+        "required": ["name", "pattern"],
+        "additionalProperties": false
+      }
     },
     "auth": {
       "type": "string",

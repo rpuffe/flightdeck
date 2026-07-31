@@ -210,6 +210,18 @@ defaults overlap old and new tasks on every rolling deploy, which risks two
 replication processes writing the same replica. Stateless services keep the
 ECS defaults — zero-downtime deploys, byte-identical plans.
 
+**v0.7.0 addition — `alerts:` (optional).** Justified the same way: the
+studio app's replication process can fail while the healthcheck stays
+green, and its error lines land in the log group the platform already
+owns — the signal existed, only the alarm was missing. Hard-coding one
+app's error strings into the platform would leak app implementation
+details, so the app declares them: each `{name, pattern}` entry becomes a
+CloudWatch Logs metric filter on the service's log group plus an alarm
+(any matching line in 5 minutes) publishing to the shared alerts topic.
+At most 10 entries; names dns-safe and unique; patterns are CloudWatch
+Logs filter syntax passed through verbatim. Absent = zero new resources,
+byte-identical.
+
 **v0.6.0 addition — `auth: cognito` (optional).** Justified the same way: the
 studio app is the first whose spec needs users to sign in and own their data.
 When set, the platform creates a Cognito user pool per environment, a public
