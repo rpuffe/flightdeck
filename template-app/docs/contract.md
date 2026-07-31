@@ -58,8 +58,11 @@ uses plain OIDC over HTTPS, no AWS SDK involved; see Auth below.)
 ## Storage (optional)
 
 Set `storage: s3` in `app-manifest.yaml` if the spec needs data to survive a
-restart or redeploy. Nothing else to configure — no bucket name, no ARN, no
-IAM policy.
+restart or redeploy, or `storage: s3-retained` if the data must also survive
+a full stack teardown (production data, not demo data). Nothing else to
+configure — no bucket name, no ARN, no IAM policy. Both values behave
+identically at runtime; they differ only in durability posture (last two
+bullets below).
 
 - **What arrives**: a `STORAGE_BUCKET` env var with the bucket name.
   `STORAGE_BUCKET` is a reserved key — `make preflight` rejects a manifest
@@ -78,10 +81,19 @@ IAM policy.
   and pass its healthcheck**. Never let the healthcheck (or startup) depend
   on S3 being reachable; fall back to in-memory state when the bucket isn't
   there.
-- **Data is destroyed with the stack.** The bucket is `force_destroy` —
-  built for a teardown-first platform. Tearing down this app's stack deletes
-  the bucket and everything in it, permanently. Don't treat this as durable
-  backup storage across a full teardown/rebuild cycle.
+- **`s3`: data is destroyed with the stack.** The bucket is `force_destroy`
+  — built for a teardown-first platform. Tearing down this app's stack
+  deletes the bucket and everything in it, permanently. Don't treat this as
+  durable backup storage across a full teardown/rebuild cycle.
+- **`s3-retained`: data survives the stack.** The bucket is versioned
+  (noncurrent versions kept 90 days) and `force_destroy` is off, so a stack
+  teardown **fails on the bucket by design** while it holds any data — that
+  failure is the break-glass, not a bug. Deleting retained production data
+  requires an operator to deliberately empty the bucket (all versions;
+  CI's deploy role cannot purge version history), or downgrading the
+  manifest to `storage: s3`, applying, and then destroying. Upgrading
+  `s3` → `s3-retained` is an in-place change to the same bucket — no data
+  migration.
 - **Deploys are stop-then-start.** Opting into `storage:` changes deploy
   semantics: the platform stops and drains the old task before starting its
   replacement, so at most one task ever runs. This guarantees a local

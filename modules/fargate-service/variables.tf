@@ -68,13 +68,13 @@ variable "env" {
 }
 
 variable "storage" {
-  description = "Optional platform storage the app needs. \"\" (default) = none, no new resources. \"s3\" = a private, per-environment S3 bucket; its name is injected into the container as the STORAGE_BUCKET env var, and the task role gets scoped read/write/list access to it."
+  description = "Optional platform storage the app needs. \"\" (default) = none, no new resources. \"s3\" = a private, per-environment S3 bucket; its name is injected into the container as the STORAGE_BUCKET env var, and the task role gets scoped read/write/list access to it. \"s3-retained\" = everything \"s3\" provides, plus versioning with 90-day noncurrent retention and force_destroy off — terraform cannot delete the bucket while it holds data, so the ledger survives a stack teardown."
   type        = string
   default     = ""
 
   validation {
-    condition     = contains(["", "s3"], var.storage)
-    error_message = "storage must be \"\" (no storage, the default) or \"s3\"."
+    condition     = contains(["", "s3", "s3-retained"], var.storage)
+    error_message = "storage must be \"\" (no storage, the default), \"s3\", or \"s3-retained\"."
   }
 }
 

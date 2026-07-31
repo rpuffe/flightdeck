@@ -24,7 +24,10 @@ deploy happens on a PR.
 
 **Optional `storage: s3`** in the manifest grants a private per-environment
 bucket via the injected `STORAGE_BUCKET` env var. Your healthcheck must
-never depend on it — see `docs/contract.md`.
+never depend on it — see `docs/contract.md`. `storage: s3-retained` is the
+production-data variant: versioned, survives stack teardown. Either value
+also makes deploys stop-then-start (single-writer guarantee, brief deploy
+downtime).
 
 **Optional `auth: cognito`** in the manifest grants a per-environment
 Cognito user pool + hosted login via injected `COGNITO_*` env vars (plain

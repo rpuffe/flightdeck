@@ -50,8 +50,8 @@
     },
     "storage": {
       "type": "string",
-      "enum": ["s3"],
-      "description": "Opt in to a private, encrypted S3 bucket for this environment (dev and prod get separate buckets). Grants the app's task role access to exactly that bucket and nothing else. The bucket name arrives via the STORAGE_BUCKET env var — do not set that key yourself in 'env'. Data is destroyed with the stack (see docs/contract.md)."
+      "enum": ["s3", "s3-retained"],
+      "description": "Opt in to a private, encrypted S3 bucket for this environment (dev and prod get separate buckets). Grants the app's task role access to exactly that bucket and nothing else. The bucket name arrives via the STORAGE_BUCKET env var — do not set that key yourself in 'env'. 's3': data is destroyed with the stack. 's3-retained': the bucket is versioned (90-day noncurrent retention) and survives a stack teardown — terraform cannot delete it while it holds data. Either value also switches the service to stop-then-start deploys so at most one task ever writes (see docs/contract.md)."
     },
     "auth": {
       "type": "string",

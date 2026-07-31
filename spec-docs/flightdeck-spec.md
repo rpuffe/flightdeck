@@ -183,6 +183,23 @@ and only permission), and injects `STORAGE_BUCKET` (a reserved env key).
 Absent = pre-v0.4.0 behavior, byte-identical. Healthchecks must never depend
 on storage; data is destroyed with the stack.
 
+**v0.7.0 addition — `storage: s3-retained` (optional).** The enum's first
+growth, justified the same way as every field: the studio app is the first
+to put production data (a billing ledger) in its bucket, and the demo-grade
+posture — `force_destroy`, no versioning — was documented as "revisit if
+that ever changes." It changed. `s3-retained` keeps everything `s3`
+provides and flips the durability posture: versioning on (noncurrent
+versions kept 90 days), `force_destroy` off. Terraform cannot delete a
+non-empty bucket without `force_destroy`, so a stack teardown fails on the
+bucket **by design** — that failure is the break-glass. Deleting retained
+data requires an operator to empty the bucket deliberately (the deploy role
+has no `s3:DeleteObjectVersion`, so CI can never purge history), or a
+manifest downgrade to `s3` + apply first. This is the sanctioned exception
+to goal §3.5's clean-teardown promise: everything else still tears down
+clean; the retained bucket surviving is the feature. Upgrading `s3` →
+`s3-retained` is an in-place update to the same bucket — no migration, no
+replacement.
+
 **v0.7.0 amendment — storage implies single-writer deploys.** A storage
 opt-in also changes deploy semantics: the service deploys stop-then-start
 (`deployment_maximum_percent = 100`, `minimum_healthy_percent = 0`), so the

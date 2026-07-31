@@ -306,7 +306,10 @@ Idle, with nothing actively deployed beyond the shared platform pieces:
   kept serving 200s throughout (zero blast radius to the rest of the
   platform), and the pre-existing parent DNS zone came out of it with its
   original records plus exactly the one NS delegation record — untouched
-  otherwise.
+  otherwise. One deliberate exception: a `storage: s3-retained` data bucket
+  survives its stack's teardown — destroy fails on a non-empty retained
+  bucket by design, because that bucket holds production data and deleting
+  it should require an operator's explicit break-glass, not a make target.
 
 ## Future work
 
