@@ -81,6 +81,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "data" {
   depends_on = [aws_s3_bucket_versioning.data]
 }
 
+# SSE-S3 is deliberate for this low-cost personal platform; a customer-managed
+# KMS key would add cost and key-policy/recovery lifecycle without protecting
+# against the trusted account administrators already able to read app data.
+#trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "data" {
   count  = local.storage_enabled ? 1 : 0
   bucket = aws_s3_bucket.data[0].id
