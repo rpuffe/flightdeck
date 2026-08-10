@@ -100,6 +100,28 @@ task-definition families. Lesson: validate IAM resource support against the
 service authorization reference or policy simulator, not the API request
 shape.
 
+### 11. Optional resources need matching deploy-role permissions
+Studio's first deploy with manifest-declared log alerts planned successfully
+but failed when Terraform called `logs:PutMetricFilter`: the per-app deploy
+role could manage the log group and alarms, but the new v0.7 alert resources
+had been added without their CloudWatch Logs actions. **Fix:** grant
+`PutMetricFilter`, `DescribeMetricFilters`, and `DeleteMetricFilter` in the
+existing `LogGroups` statement, scoped to only that app's dev/prod log-group
+ARNs. Lesson: every opt-in Terraform resource needs an apply-and-destroy IAM
+inventory test, not only schema and plan coverage.
+
+### 12. AWS default changes can invalidate deliberate deployment settings
+The same Studio apply reached `UpdateService` and failed because AWS had
+enabled ECS Availability Zone rebalancing on the existing service. ECS does
+not permit rebalancing when `maximumPercent = 100`, which Flightdeck uses with
+`minimumHealthyPercent = 0` to guarantee stop-then-start deployment for
+storage-backed single-writer services. **Fix:** explicitly disable rebalancing
+for storage-backed services while leaving stateless services unset—retaining
+the existing setting on update or the ECS default on create—on their 200/100
+rolling-deploy path. Lesson: when two provider/API settings are
+constrained as a pair, encode and test the coupling rather than relying on a
+service default.
+
 ## Stage 3 result
 
 Cold Sonnet agent, two documents (APP_SPEC.md + CONVENTIONS.md), template

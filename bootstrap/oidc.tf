@@ -322,6 +322,9 @@ data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
     actions = [
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
+      "logs:DeleteMetricFilter",
+      "logs:DescribeMetricFilters",
+      "logs:PutMetricFilter",
       "logs:PutRetentionPolicy",
       "logs:TagResource",
       "logs:UntagResource",
