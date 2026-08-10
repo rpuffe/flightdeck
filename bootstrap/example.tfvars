@@ -11,9 +11,10 @@ alert_email = "you@example.com"
 # affects deliverability for all of them.
 #
 # The dev address (<app>-dev@fd.robertpuffe.com) is authorized automatically
-# for any app listed here; only prod addresses go in the list. Prod domains
-# must be verified in SES out of band, with DKIM records added at that
-# domain's own registrar.
+# for any app listed here; only prod addresses go in the list. Every prod
+# domain must be a verified SES identity — either list it in
+# mail_managed_zones below and Terraform verifies it, or verify it in the SES
+# console and add its DKIM records at whatever registrar holds the domain.
 #
 # mail_senders = {
 #   studio = ["noreply@example.com"]

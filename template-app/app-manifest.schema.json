@@ -102,7 +102,7 @@
       "properties": {
         "from": {
           "type": "string",
-          "pattern": "^[^@\\s]+@[a-z0-9.-]+\\.[a-z]{2,}$",
+          "pattern": "^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$",
           "description": "Exact From address prod sends as, e.g. billing@example.com. Bare address only — no display name, no angle brackets; set the human-readable display name in the app when it composes the message."
         }
       },

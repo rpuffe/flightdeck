@@ -208,7 +208,7 @@ validate-manifest:
 	  if [ "$$(yq '.email.from | tag' $(MANIFEST))" != "!!str" ]; then \
 	    echo "email.from must be a string address → see docs/contract.md"; exit 1; \
 	  fi; \
-	  echo "$$from" | grep -Eq '^[^@[:space:]]+@[a-z0-9.-]+\.[a-z]{2,}$$' || { \
+	  echo "$$from" | grep -Eq '^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$$' || { \
 	    echo "email.from '$$from' is invalid — must be a bare lowercase address with no display name, e.g. billing@example.com → see docs/contract.md"; \
 	    exit 1; \
 	  }; \

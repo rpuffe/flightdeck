@@ -128,7 +128,7 @@ variable "email_from" {
   default     = ""
 
   validation {
-    condition     = var.email_from == "" || can(regex("^[^@[:space:]]+@[a-z0-9.-]+\\.[a-z]{2,}$", var.email_from))
+    condition     = var.email_from == "" || can(regex("^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$", var.email_from))
     error_message = "email_from must be \"\" (no mail, the default) or a bare lowercase email address with no display name, e.g. billing@example.com."
   }
 }
