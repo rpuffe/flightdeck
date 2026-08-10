@@ -251,6 +251,56 @@ resource "aws_iam_policy" "exec_secrets" {
   policy      = data.aws_iam_policy_document.exec_secret_permissions[each.key].json
 }
 
+# Mail policies are bootstrap-owned for the same reason storage and secret
+# policies are: the app deploy role can attach a policy but can never create
+# one, so an app repository cannot mint itself new permissions. Only services
+# whose app appears in var.mail_senders get a policy at all — an app that
+# declares email: without being authorized fails at apply with a missing
+# policy, which is a far better signal than an AccessDenied at send time.
+locals {
+  mail_services = {
+    for service, meta in local.app_services : service => {
+      app = meta.app
+      # Prod may send as any address the operator authorized; dev is pinned to
+      # the platform zone so test traffic cannot spend production reputation.
+      addresses = (
+        meta.environment == "prod"
+        ? var.mail_senders[meta.app]
+        : ["${meta.app}-dev@${local.child_zone_name}"]
+      )
+    }
+    if contains(keys(var.mail_senders), meta.app)
+  }
+}
+
+data "aws_iam_policy_document" "task_mail_permissions" {
+  for_each = local.mail_services
+
+  statement {
+    sid       = "SendAuthorizedMail"
+    actions   = ["ses:SendEmail", "ses:SendRawEmail"]
+    resources = ["*"]
+
+    # The real constraint. Resources stay "*" because a send is authorized
+    # against the identity of the From domain, which for prod is verified out
+    # of band or via mail_managed_zones; the condition pins the exact
+    # addresses instead.
+    condition {
+      test     = "StringEquals"
+      variable = "ses:FromAddress"
+      values   = each.value.addresses
+    }
+  }
+}
+
+resource "aws_iam_policy" "task_mail" {
+  for_each = local.mail_services
+
+  name        = "${local.name_prefix}-${each.key}-task-mail"
+  description = "Outbound SES permissions for the ${each.key} task role"
+  policy      = data.aws_iam_policy_document.task_mail_permissions[each.key].json
+}
+
 data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
   for_each = local.app_deploy
 
@@ -625,7 +675,12 @@ data "aws_iam_policy_document" "deploy_identity_permissions" {
       condition {
         test     = "ArnEquals"
         variable = "iam:PolicyARN"
-        values   = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${local.name_prefix}-${statement.value}-task-storage"]
+        values = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${local.name_prefix}-${statement.value}-task-storage",
+          # Attach-only, exactly like storage: the policy itself is created
+          # above and the deploy role holds no iam:CreatePolicy.
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${local.name_prefix}-${statement.value}-task-mail",
+        ]
       }
 
 
