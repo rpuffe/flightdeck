@@ -65,6 +65,11 @@ variable "env" {
     condition     = length(setintersection(keys(var.env), ["COGNITO_USER_POOL_ID", "COGNITO_CLIENT_ID", "COGNITO_DOMAIN", "COGNITO_ISSUER"])) == 0
     error_message = "env.COGNITO_* keys are reserved — the platform injects them when auth: cognito is set"
   }
+
+  validation {
+    condition     = length(setintersection(keys(var.env), ["MAIL_FROM", "MAIL_REGION"])) == 0
+    error_message = "env.MAIL_FROM and env.MAIL_REGION are reserved — the platform injects them when email.from is set"
+  }
 }
 
 variable "secrets" {
@@ -99,8 +104,10 @@ variable "secrets" {
       "COGNITO_CLIENT_ID",
       "COGNITO_DOMAIN",
       "COGNITO_ISSUER",
+      "MAIL_FROM",
+      "MAIL_REGION",
     ]))) == 0
-    error_message = "secrets cannot use platform-reserved STORAGE_BUCKET or COGNITO_* names."
+    error_message = "secrets cannot use platform-reserved STORAGE_BUCKET, COGNITO_*, or MAIL_* names."
   }
 }
 
@@ -112,6 +119,17 @@ variable "storage" {
   validation {
     condition     = contains(["", "s3", "s3-retained"], var.storage)
     error_message = "storage must be \"\" (no storage, the default), \"s3\", or \"s3-retained\"."
+  }
+}
+
+variable "email_from" {
+  description = "Optional outbound mail. \"\" (default) = none, no new resources. Any other value is the exact From address prod sends as; its domain must be a verified SES identity in the account. The task role gains ses:SendEmail/SendRawEmail scoped to that one address, and MAIL_FROM/MAIL_REGION are injected as reserved env vars. Dev ignores this value and sends as <name>-dev@<child_zone_name> so test traffic never spends the production domain's reputation. The app must also be authorized in the platform's mail_senders registry, or sends fail with AccessDenied."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.email_from == "" || can(regex("^[^@[:space:]]+@[a-z0-9.-]+\\.[a-z]{2,}$", var.email_from))
+    error_message = "email_from must be \"\" (no mail, the default) or a bare lowercase email address with no display name, e.g. billing@example.com."
   }
 }
 

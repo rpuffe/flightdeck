@@ -60,6 +60,33 @@ variable "github_repository_ids" {
   }
 }
 
+variable "mail_senders" {
+  description = "Apps authorized to send mail through SES, mapped to the exact prod From addresses each may use. Operator-controlled on purpose: an app cannot grant itself sending by editing its own manifest, and an app absent from this map gets no ses:* in its permissions boundary at all — so enabling mail for one app leaves every other app's ceiling byte-identical. The platform-zone dev address is authorized automatically for a listed app and must not be repeated here. Prod domains are verified in SES out of band; only the child zone's identity is Terraform-managed. Example: { studio = [\"billing@sephrasmusicstudio.com\"] }"
+  type        = map(list(string))
+  default     = {}
+
+  validation {
+    condition     = length(setsubtract(keys(var.mail_senders), toset(var.apps))) == 0
+    error_message = "Every mail_senders key must name an app registered in var.apps."
+  }
+
+  validation {
+    condition = alltrue([
+      for addresses in values(var.mail_senders) : alltrue([
+        for address in addresses : can(regex("^[^@[:space:]]+@[a-z0-9.-]+\\.[a-z]{2,}$", address))
+      ])
+    ])
+    error_message = "Every mail_senders address must be a bare lowercase email address with no display name, e.g. billing@example.com."
+  }
+
+  validation {
+    condition = alltrue([
+      for addresses in values(var.mail_senders) : length(addresses) > 0
+    ])
+    error_message = "An app listed in mail_senders must authorize at least one prod From address; remove the key entirely to revoke sending."
+  }
+}
+
 variable "budget_limit_usd" {
   description = "Monthly budget alarm threshold in USD"
   type        = string
