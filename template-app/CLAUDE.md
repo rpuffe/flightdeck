@@ -47,6 +47,13 @@ still pass. See `docs/contract.md`.
 operator — for failures a green healthcheck can hide, like a replication
 error. See `docs/contract.md`.
 
+**Optional `email:`** in the manifest grants scoped SES permission to send as
+one declared address, injected as `MAIL_FROM`/`MAIL_REGION`. Dev always sends
+from the platform zone, never the production address. Needs the From domain
+verified in SES *and* an operator-side grant — an app cannot enable its own
+sending. Mail must disable cleanly when `MAIL_FROM` is unset. See
+`docs/contract.md`.
+
 ## Docs — read the one for the task at hand, not all of them upfront
 
 - `docs/contract.md` — runtime expectations: what your app must do, what the platform already does for you.

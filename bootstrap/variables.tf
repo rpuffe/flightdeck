@@ -60,6 +60,70 @@ variable "github_repository_ids" {
   }
 }
 
+variable "mail_senders" {
+  description = "Apps authorized to send mail through SES, mapped to the exact prod From addresses each may use. Operator-controlled on purpose: an app cannot grant itself sending by editing its own manifest, and an app absent from this map gets no ses:* in its permissions boundary at all — so enabling mail for one app leaves every other app's ceiling byte-identical. The platform-zone dev address is authorized automatically for a listed app and must not be repeated here. Each prod domain must be a verified SES identity: list it in mail_managed_zones to have Terraform verify it, or verify it out of band when its DNS lives elsewhere. Example: { studio = [\"noreply@example.com\"] }"
+  type        = map(list(string))
+  default     = {}
+
+  validation {
+    condition     = length(setsubtract(keys(var.mail_senders), toset(var.apps))) == 0
+    error_message = "Every mail_senders key must name an app registered in var.apps."
+  }
+
+  validation {
+    condition = alltrue([
+      for addresses in values(var.mail_senders) : alltrue([
+        for address in addresses : can(regex("^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$", address))
+      ])
+    ])
+    error_message = "Every mail_senders address must be a bare lowercase email address with no display name, e.g. billing@example.com."
+  }
+
+  validation {
+    condition = alltrue([
+      for addresses in values(var.mail_senders) : length(addresses) > 0
+    ])
+    error_message = "An app listed in mail_senders must authorize at least one prod From address; remove the key entirely to revoke sending."
+  }
+}
+
+variable "mail_managed_zones" {
+  description = "Sending domains whose Route53 hosted zone lives in THIS account and should get a Terraform-managed SES identity plus DKIM/SPF/DMARC records. Domains left out of this list still work — they are verified in the SES console and their records added at whatever registrar holds them — this list only automates the ones flightdeck can reach. Each entry must be an apex domain with an existing public hosted zone, and Terraform will create a TXT record at that apex: a domain that already publishes SPF must be left off this list and merged by hand instead. Example: [\"sephrasmusicstudio.com\"]"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for domain in var.mail_managed_zones : can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", domain))
+    ])
+    error_message = "Every mail_managed_zones entry must be a bare lowercase apex domain, e.g. example.com (no scheme, no trailing dot, no address)."
+  }
+
+  validation {
+    condition     = length(distinct(var.mail_managed_zones)) == length(var.mail_managed_zones)
+    error_message = "mail_managed_zones entries must be unique."
+  }
+
+  # The parent zone hosts a live personal site and is data-source-only apart
+  # from the single NS delegation record (spec 5b, edge.tf). Listing it here
+  # would have Terraform write SPF/DMARC TXT records at that apex — an SPF
+  # "-all" on a domain with real mailboxes silently breaks their delivery.
+  # A hard failure, not a silent filter: the operator meant something by the
+  # entry and needs to see that it cannot be honoured.
+  validation {
+    condition     = !contains(var.mail_managed_zones, var.parent_zone_name)
+    error_message = "mail_managed_zones must not contain the parent zone (var.parent_zone_name). It hosts a live site and is data-source-only apart from the NS delegation record; writing SPF/DMARC there would affect mail flightdeck does not own."
+  }
+
+  # The child zone gets its identity from aws_sesv2_email_identity.child_zone
+  # unconditionally; listing it here would declare a second identity and a
+  # duplicate record set for the same domain.
+  validation {
+    condition     = !contains(var.mail_managed_zones, "${var.subdomain}.${var.parent_zone_name}")
+    error_message = "mail_managed_zones must not contain the flightdeck child zone — its SES identity and DNS records are already managed unconditionally in ses.tf."
+  }
+}
+
 variable "budget_limit_usd" {
   description = "Monthly budget alarm threshold in USD"
   type        = string

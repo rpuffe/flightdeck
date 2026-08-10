@@ -154,6 +154,38 @@ data "aws_iam_policy_document" "task_permissions_boundary" {
       "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_prefix}/${each.key}/${environment}/*"
     ]
   }
+
+  # Mail is the one capability an app cannot switch on for itself: it appears
+  # here only for apps the operator listed in var.mail_senders, so every other
+  # app's boundary is unchanged by this block existing. That matters more than
+  # usual because SES reputation and sending quota are account-wide — one app
+  # sending badly degrades deliverability for all of them.
+  #
+  # The ses:FromAddress condition is the real constraint. Resources stay "*"
+  # because a send is authorized against the identity of the From domain,
+  # which for a prod app is a domain verified out of band; pinning ARNs here
+  # would mean bootstrap had to know every app's production domain. The
+  # condition pins the exact addresses instead, so even a malicious inline
+  # policy on the task role cannot send as anyone else.
+  dynamic "statement" {
+    for_each = contains(keys(var.mail_senders), each.key) ? [each.key] : []
+
+    content {
+      sid       = "SendOwnMail"
+      actions   = ["ses:SendEmail", "ses:SendRawEmail"]
+      resources = ["*"]
+
+      condition {
+        test     = "StringEquals"
+        variable = "ses:FromAddress"
+        values = concat(
+          # Dev always sends from the platform zone, never the prod domain.
+          ["${statement.value}-dev@${local.child_zone_name}"],
+          var.mail_senders[statement.value],
+        )
+      }
+    }
+  }
 }
 
 resource "aws_iam_policy" "task_permissions_boundary" {

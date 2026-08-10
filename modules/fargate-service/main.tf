@@ -33,6 +33,13 @@ locals {
       COGNITO_CLIENT_ID    = one(aws_cognito_user_pool_client.auth[*].id)
       COGNITO_DOMAIN       = "${one(aws_cognito_user_pool_domain.auth[*].domain)}.auth.${data.aws_region.current.region}.amazoncognito.com"
       COGNITO_ISSUER       = "https://cognito-idp.${data.aws_region.current.region}.amazonaws.com/${one(aws_cognito_user_pool.auth[*].id)}"
+    } : {},
+    local.email_enabled ? {
+      MAIL_FROM = local.mail_from
+      # Explicit rather than left to the SDK's region discovery: Fargate does
+      # not set AWS_REGION in the container, so a bare SES client would have
+      # no region to resolve.
+      MAIL_REGION = data.aws_region.current.region
     } : {}
   )
 }

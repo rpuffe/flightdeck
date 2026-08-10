@@ -43,7 +43,9 @@
           { "required": ["COGNITO_USER_POOL_ID"] },
           { "required": ["COGNITO_CLIENT_ID"] },
           { "required": ["COGNITO_DOMAIN"] },
-          { "required": ["COGNITO_ISSUER"] }
+          { "required": ["COGNITO_ISSUER"] },
+          { "required": ["MAIL_FROM"] },
+          { "required": ["MAIL_REGION"] }
         ]
       },
       "default": {}
@@ -57,7 +59,7 @@
         "type": "string",
         "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
         "not": {
-          "enum": ["STORAGE_BUCKET", "COGNITO_USER_POOL_ID", "COGNITO_CLIENT_ID", "COGNITO_DOMAIN", "COGNITO_ISSUER"]
+          "enum": ["STORAGE_BUCKET", "COGNITO_USER_POOL_ID", "COGNITO_CLIENT_ID", "COGNITO_DOMAIN", "COGNITO_ISSUER", "MAIL_FROM", "MAIL_REGION"]
         }
       },
       "default": []
@@ -93,6 +95,19 @@
       "type": "string",
       "enum": ["cognito"],
       "description": "Opt in to a Cognito user pool for this environment (dev and prod get separate pools) with a public PKCE app client and hosted login UI. Identifiers arrive via the reserved COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_DOMAIN, and COGNITO_ISSUER env vars — do not set those keys yourself in 'env'. No AWS SDK calls or client secret involved; verify tokens against the issuer's JWKS. User accounts are destroyed with the stack (see docs/contract.md)."
+    },
+    "email": {
+      "type": "object",
+      "description": "Opt in to outbound mail through SES. The task role gains permission to send as exactly the declared address and nothing else, and MAIL_FROM/MAIL_REGION arrive as reserved env vars — do not set those keys yourself in 'env'. Dev ignores the declared address and sends as <name>-dev@fd.robertpuffe.com, so test traffic never spends the production domain's sending reputation. Two prerequisites the manifest cannot express: the From domain must be a verified SES identity, and the platform operator must authorize this app in the bootstrap mail_senders registry — an app cannot grant itself sending (see docs/contract.md).",
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$",
+          "description": "Exact From address prod sends as, e.g. billing@example.com. Bare address only — no display name, no angle brackets; set the human-readable display name in the app when it composes the message."
+        }
+      },
+      "required": ["from"],
+      "additionalProperties": false
     }
   },
   "required": ["name", "port", "healthcheck", "cpu", "memory"],

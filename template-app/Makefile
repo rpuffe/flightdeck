@@ -41,12 +41,12 @@ check-tools:
 validate-manifest:
 	@test -f $(MANIFEST) || { echo "$(MANIFEST) not found at repo root → see docs/contract.md"; exit 1; }
 	@for k in $$(yq 'keys | .[]' $(MANIFEST)); do \
-	  case " name port healthcheck cpu memory env secrets storage auth alerts " in \
+	  case " name port healthcheck cpu memory env secrets storage auth alerts email " in \
 	    *" $$k "*) : ;; \
 	    *) if [ "$$k" = "image" ]; then \
 	         echo "app-manifest.yaml has an 'image' field — CI supplies the image, never add one → see docs/contract.md"; \
 	       else \
-	         echo "app-manifest.yaml has unknown field '$$k' — only name, port, healthcheck, cpu, memory, env, secrets, storage, auth, alerts are allowed → see docs/contract.md"; \
+	         echo "app-manifest.yaml has unknown field '$$k' — only name, port, healthcheck, cpu, memory, env, secrets, storage, auth, alerts, email are allowed → see docs/contract.md"; \
 	       fi; \
 	       exit 1 ;; \
 	  esac; \
@@ -101,6 +101,9 @@ validate-manifest:
 	      COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_DOMAIN|COGNITO_ISSUER) \
 	        echo "env.$$k is reserved — the platform injects it when auth: cognito is set, don't define it yourself → see docs/contract.md"; \
 	        exit 1 ;; \
+	      MAIL_FROM|MAIL_REGION) \
+	        echo "env.$$k is reserved — the platform injects it when email.from is set, don't define it yourself → see docs/contract.md"; \
+	        exit 1 ;; \
 	    esac; \
 	    t=$$(yq ".env.$$k | tag" $(MANIFEST)); \
 	    if [ "$$t" != "!!str" ]; then \
@@ -128,7 +131,7 @@ validate-manifest:
 	      echo "secrets[$$i] '$$n' is invalid — must match ^[A-Z][A-Z0-9_]{0,63}$$ → see docs/contract.md"; exit 1; \
 	    }; \
 	    case "$$n" in \
-	      STORAGE_BUCKET|COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_DOMAIN|COGNITO_ISSUER) \
+	      STORAGE_BUCKET|COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_DOMAIN|COGNITO_ISSUER|MAIL_FROM|MAIL_REGION) \
 	        echo "secrets[$$i] '$$n' is reserved for platform injection → see docs/contract.md"; exit 1 ;; \
 	    esac; \
 	    if [ "$$(yq ".env | has(\"$$n\")" $(MANIFEST))" = "true" ]; then \
@@ -187,6 +190,28 @@ validate-manifest:
 	    echo "auth '$$auth' is invalid — only 'cognito' is supported → see docs/contract.md"; \
 	    exit 1; \
 	  fi; \
+	fi
+	@if [ "$$(yq '.email' $(MANIFEST))" != "null" ]; then \
+	  if [ "$$(yq '.email | tag' $(MANIFEST))" != "!!map" ]; then \
+	    echo "email must be a mapping with a 'from' address → see docs/contract.md"; exit 1; \
+	  fi; \
+	  for k in $$(yq '.email | keys | .[]' $(MANIFEST)); do \
+	    case "$$k" in \
+	      from) : ;; \
+	      *) echo "email has unknown key '$$k' — only 'from' is allowed → see docs/contract.md"; exit 1 ;; \
+	    esac; \
+	  done; \
+	  from=$$(yq '.email.from' $(MANIFEST)); \
+	  if [ "$$from" = "null" ]; then \
+	    echo "email is missing required key 'from' — the address prod sends as → see docs/contract.md"; exit 1; \
+	  fi; \
+	  if [ "$$(yq '.email.from | tag' $(MANIFEST))" != "!!str" ]; then \
+	    echo "email.from must be a string address → see docs/contract.md"; exit 1; \
+	  fi; \
+	  echo "$$from" | grep -Eq '^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$$' || { \
+	    echo "email.from '$$from' is invalid — must be a bare lowercase address with no display name, e.g. billing@example.com → see docs/contract.md"; \
+	    exit 1; \
+	  }; \
 	fi
 	@echo "==> manifest OK"
 

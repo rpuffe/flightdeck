@@ -20,12 +20,14 @@ runtime behavior (not its build rules — see `docs/dockerfile.md` for those).
 
 The app never touches AWS, Terraform, or DNS. No AWS SDK infra calls, no
 `.tf` files, no domain/certificate config. If the spec seems to need any of
-that, the platform already provides it, or v1 doesn't support it. **The one
-sanctioned exception**: if the manifest sets `storage: s3`, S3 SDK calls
-against your injected `STORAGE_BUCKET` are allowed — see Storage below. That
-is the entire exception; no other AWS SDK calls, and no calls to any bucket
-other than the injected one. (`auth: cognito` adds no exception — sign-in
-uses plain OIDC over HTTPS, no AWS SDK involved; see Auth below.)
+that, the platform already provides it, or v1 doesn't support it. **There are
+exactly two sanctioned exceptions**: if the manifest sets `storage: s3`, S3
+SDK calls against your injected `STORAGE_BUCKET` are allowed (see Storage
+below); if it sets `email:`, SES send calls as your injected `MAIL_FROM` are
+allowed (see Email below). That is the entire list — no other AWS SDK calls,
+no calls to any bucket other than the injected one, and no sending as any
+address other than the injected one. (`auth: cognito` adds no exception —
+sign-in uses plain OIDC over HTTPS, no AWS SDK involved; see Auth below.)
 
 ## What your app must do
 
@@ -194,3 +196,60 @@ client secret, no IAM.
 - **User accounts are destroyed with the stack.** The pool has deletion
   protection off — teardown-first platform. Tearing down this app's stack
   deletes the pool and every user in it, permanently.
+
+## Email (optional)
+
+```yaml
+email:
+  from: billing@example.com
+```
+
+Set this if the spec needs your app to send mail. The task role gains
+permission to send through SES as exactly that address and nothing else.
+
+- **What arrives**: two reserved env vars (`make preflight` rejects a
+  manifest that also defines them in `env:`):
+  - `MAIL_FROM` — the address to send as. **Use this value verbatim as the
+    envelope From**; a different address is denied by IAM. A display name is
+    fine when you compose the message (`Studio <$MAIL_FROM>`), but the
+    address inside it must match.
+  - `MAIL_REGION` — the region to construct the SES client with. Fargate does
+    not set `AWS_REGION`, so a client built without this has no region to
+    resolve.
+- **How to call it**: the AWS SDK's default credential chain, same as
+  storage — no keys to manage. `ses:SendEmail` and `ses:SendRawEmail` only;
+  no identity management, no template, no configuration-set APIs.
+- **Dev never sends as the production address.** In dev, `MAIL_FROM` is
+  forced to `<name>-dev@fd.robertpuffe.com` no matter what the manifest
+  declares. Bounces and test loops spend sending reputation, and SES
+  reputation is account-wide — dev traffic must never spend production's.
+  Read the address from the env var and this costs you nothing.
+- **Two prerequisites the manifest cannot express**, both operator-side:
+  1. The From domain must be a **verified SES identity**. The platform zone
+     (`fd.robertpuffe.com`) is Terraform-managed, so dev works as soon as
+     the feature is on. A production domain whose Route53 zone is in the
+     same account can be Terraform-managed too — the operator lists it in
+     `mail_managed_zones` and its identity, DKIM, SPF, and DMARC records are
+     created for it. A domain hosted anywhere else is verified through the
+     SES console, with its DKIM records added at that domain's registrar.
+  2. The app must be listed in the platform's **`mail_senders` registry**
+     with this exact address. An app cannot grant itself sending by editing
+     its own manifest — declaring `email:` without the operator-side grant
+     deploys fine and then fails at send time with `AccessDenied`.
+- **The SES sandbox is on until you leave it.** A new account can only send
+  to verified addresses. Reaching real recipients needs a one-time
+  production-access request to AWS support, per account.
+- **Graceful degradation is part of the contract, not optional.** With no
+  `email:` set, or when running locally (`make preflight` / `make run`),
+  `MAIL_FROM` is unset — your app **must still boot and pass its
+  healthcheck**. Treat mail as disabled when the var is absent (queue it,
+  log it, or show it as unsent) rather than crashing at startup.
+- **Prefer failing loudly over silently.** A send that is denied or
+  throttled must surface — an `alerts:` entry on your error signature is the
+  intended mechanism, since a green healthcheck hides undelivered mail.
+
+**The alternative, if you'd rather not take the IAM grant**: SES also speaks
+SMTP with static credentials, which are just two entries under `secrets:` and
+need no platform support at all. That trades this scoped, rotation-free grant
+for a long-lived credential you own and rotate. Either is supported; `email:`
+is the one the platform manages.

@@ -79,6 +79,7 @@ module "app" {
   storage          = try(local.manifest.storage, "")
   auth             = try(local.manifest.auth, "")
   alerts           = try(local.manifest.alerts, [])
+  email_from       = try(local.manifest.email.from, "")
 
   image       = var.image
   environment = var.environment
