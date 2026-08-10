@@ -67,6 +67,86 @@ resource "aws_route53_record" "ses_dmarc" {
   records = ["v=DMARC1; p=none; rua=mailto:${var.alert_email}"]
 }
 
+# ---------------------------------------------------------------------------
+# Production sending domains hosted in this account
+# ---------------------------------------------------------------------------
+#
+# A production domain is not flightdeck's zone, but when its hosted zone
+# happens to live in this account there is no reason to make the operator
+# copy DKIM records by hand — Terraform can reach it, so it manages it. A
+# domain hosted anywhere else simply stays off mail_managed_zones and gets
+# verified through the SES console instead; nothing else about the app
+# changes. This is not the edge.tf parent-zone rule being relaxed: that zone
+# is off limits because it hosts a live personal site, whereas these are the
+# app's own sending domains, listed explicitly by the operator.
+
+# Fails the plan loudly if the zone is not in this account, which is exactly
+# the signal the operator needs before an apply half-configures a domain.
+data "aws_route53_zone" "mail" {
+  for_each = toset(var.mail_managed_zones)
+
+  name         = "${each.value}."
+  private_zone = false
+}
+
+resource "aws_sesv2_email_identity" "mail_domain" {
+  for_each = toset(var.mail_managed_zones)
+
+  email_identity = each.value
+
+  dkim_signing_attributes {
+    next_signing_key_length = "RSA_2048_BIT"
+  }
+}
+
+# Keyed on domain + slot rather than on the token values, because the tokens
+# are unknown until apply and for_each keys have to resolve at plan time.
+resource "aws_route53_record" "mail_domain_dkim" {
+  for_each = {
+    for pair in setproduct(var.mail_managed_zones, [0, 1, 2]) :
+    "${pair[0]}-${pair[1]}" => {
+      domain = pair[0]
+      slot   = pair[1]
+    }
+  }
+
+  zone_id = data.aws_route53_zone.mail[each.value.domain].zone_id
+  name    = "${aws_sesv2_email_identity.mail_domain[each.value.domain].dkim_signing_attributes[0].tokens[each.value.slot]}._domainkey.${each.value.domain}"
+  type    = "CNAME"
+  ttl     = 600
+  records = ["${aws_sesv2_email_identity.mail_domain[each.value.domain].dkim_signing_attributes[0].tokens[each.value.slot]}.dkim.amazonses.com"]
+}
+
+# Creating this record assumes the apex publishes no SPF today — the variable
+# documents that precondition, since Terraform would otherwise overwrite an
+# existing policy. -all means SES is the only legitimate sender: adding a
+# mailbox provider later (Workspace, Fastmail) requires adding its include:
+# here first, or that provider's mail will be rejected.
+resource "aws_route53_record" "mail_domain_spf" {
+  for_each = toset(var.mail_managed_zones)
+
+  zone_id = data.aws_route53_zone.mail[each.value].zone_id
+  name    = each.value
+  type    = "TXT"
+  ttl     = 600
+  records = ["v=spf1 include:amazonses.com -all"]
+}
+
+resource "aws_route53_record" "mail_domain_dmarc" {
+  for_each = toset(var.mail_managed_zones)
+
+  zone_id = data.aws_route53_zone.mail[each.value].zone_id
+  name    = "_dmarc.${each.value}"
+  type    = "TXT"
+  ttl     = 600
+  records = ["v=DMARC1; p=none; rua=mailto:${var.alert_email}"]
+}
+
+output "mail_managed_zones" {
+  description = "Sending domains whose SES identity and DNS authentication records are Terraform-managed in this account. Domains sending from flightdeck but absent here are verified out of band."
+  value       = var.mail_managed_zones
+}
+
 output "mail_identity_domain" {
   description = "SES domain identity for the flightdeck child zone, or \"\" when no app is authorized to send mail. Dev environments of mail-enabled apps send from <app>-dev@<this domain>."
   value       = local.mail_enabled ? local.child_zone_name : ""

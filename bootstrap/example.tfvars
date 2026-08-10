@@ -16,5 +16,17 @@ alert_email = "you@example.com"
 # domain's own registrar.
 #
 # mail_senders = {
-#   studio = ["billing@sephrasmusicstudio.com"]
+#   studio = ["noreply@example.com"]
 # }
+
+# Sending domains whose Route53 zone is in THIS account, so Terraform can
+# create the SES identity and its DKIM/SPF/DMARC records instead of you
+# copying them to a registrar by hand. Domains hosted elsewhere are simply
+# left out and verified through the SES console — they work either way.
+#
+# Terraform writes a TXT record at each apex, so a domain that already
+# publishes SPF must stay off this list and be merged manually. The policy
+# written is `-all`: SES becomes the only legitimate sender, and adding a
+# mailbox provider later means adding its include: here first.
+#
+# mail_managed_zones = ["example.com"]

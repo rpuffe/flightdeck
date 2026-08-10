@@ -87,6 +87,24 @@ variable "mail_senders" {
   }
 }
 
+variable "mail_managed_zones" {
+  description = "Sending domains whose Route53 hosted zone lives in THIS account and should get a Terraform-managed SES identity plus DKIM/SPF/DMARC records. Domains left out of this list still work — they are verified in the SES console and their records added at whatever registrar holds them — this list only automates the ones flightdeck can reach. Each entry must be an apex domain with an existing public hosted zone, and Terraform will create a TXT record at that apex: a domain that already publishes SPF must be left off this list and merged by hand instead. Example: [\"sephrasmusicstudio.com\"]"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for domain in var.mail_managed_zones : can(regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+$", domain))
+    ])
+    error_message = "Every mail_managed_zones entry must be a bare lowercase apex domain, e.g. example.com (no scheme, no trailing dot, no address)."
+  }
+
+  validation {
+    condition     = length(distinct(var.mail_managed_zones)) == length(var.mail_managed_zones)
+    error_message = "mail_managed_zones entries must be unique."
+  }
+}
+
 variable "budget_limit_usd" {
   description = "Monthly budget alarm threshold in USD"
   type        = string

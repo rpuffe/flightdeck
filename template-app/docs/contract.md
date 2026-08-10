@@ -227,9 +227,11 @@ permission to send through SES as exactly that address and nothing else.
 - **Two prerequisites the manifest cannot express**, both operator-side:
   1. The From domain must be a **verified SES identity**. The platform zone
      (`fd.robertpuffe.com`) is Terraform-managed, so dev works as soon as
-     the feature is on. A production domain flightdeck does not own is
-     verified out of band, with its DKIM records added at that domain's own
-     registrar.
+     the feature is on. A production domain whose Route53 zone is in the
+     same account can be Terraform-managed too — the operator lists it in
+     `mail_managed_zones` and its identity, DKIM, SPF, and DMARC records are
+     created for it. A domain hosted anywhere else is verified through the
+     SES console, with its DKIM records added at that domain's registrar.
   2. The app must be listed in the platform's **`mail_senders` registry**
      with this exact address. An app cannot grant itself sending by editing
      its own manifest — declaring `email:` without the operator-side grant
