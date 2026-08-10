@@ -22,44 +22,20 @@ locals {
   # here, not in the app's contract.
   mail_from = var.environment == "prod" ? var.email_from : "${var.name}-dev@${var.child_zone_name}"
 
-  # Sending is authorized against the identity of the From domain. For dev
-  # that identity is Terraform-managed (bootstrap/ses.tf); for prod it is a
-  # real domain verified out of band, so this ARN may name an identity that
-  # does not exist yet — sends then fail visibly with a clear SES error
-  # rather than silently succeeding, which is the behaviour we want.
-  mail_identity_domain = element(split("@", local.mail_from), 1)
 }
 
-data "aws_iam_policy_document" "email" {
-  count = local.email_enabled ? 1 : 0
-
-  statement {
-    sid       = "SendAsOwnAddress"
-    actions   = ["ses:SendEmail", "ses:SendRawEmail"]
-    resources = ["arn:aws:ses:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:identity/${local.mail_identity_domain}"]
-
-    # Narrower than the permissions boundary's equivalent condition, which
-    # allows every address the operator authorized for this app. Here it is
-    # exactly the one address this environment sends as.
-    condition {
-      test     = "StringEquals"
-      variable = "ses:FromAddress"
-      values   = [local.mail_from]
-    }
-  }
-}
-
-resource "aws_iam_policy" "email" {
-  count = local.email_enabled ? 1 : 0
-
-  name        = "flightdeck-${local.svc_name}-email"
-  description = "Send mail as ${local.mail_from} for ${local.svc_name}"
-  policy      = data.aws_iam_policy_document.email[0].json
-}
-
+# Attach only. The policy is created in bootstrap (oidc.tf), which is what
+# lets the app deploy role stay unable to create IAM policies at all — the
+# same split storage and managed secrets use. App Terraform can adopt this
+# permission but can never write or widen it.
+#
+# If this attach fails because the policy does not exist, the operator has
+# not authorized the app in var.mail_senders. That is a deliberate, legible
+# failure at apply time rather than an AccessDenied on the first statement
+# a family was supposed to receive.
 resource "aws_iam_role_policy_attachment" "task_email" {
   count = local.email_enabled ? 1 : 0
 
   role       = aws_iam_role.task.name
-  policy_arn = aws_iam_policy.email[0].arn
+  policy_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/flightdeck-${local.svc_name}-task-mail"
 }
