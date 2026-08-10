@@ -128,10 +128,14 @@ memory: 512
             yq = temp / "yq"
             yq.write_text(
                 "#!/bin/sh\n"
-                "case \"$1\" in\n"
-                "  .name) echo secret-test ;;\n"
-                "  *) exit 0 ;;\n"
-                "esac\n"
+                "if [ \"$1\" = .name ]; then echo secret-test; exit 0; fi\n"
+                "if [ \"$1\" = -e ]; then\n"
+                "  case \"$2\" in\n"
+                "    *'contains([\"API_KEY\"])'*) exit 0 ;;\n"
+                "    *) echo unsupported-yq-expression >&2; exit 2 ;;\n"
+                "  esac\n"
+                "fi\n"
+                "exit 2\n"
             )
             yq.chmod(0o755)
 

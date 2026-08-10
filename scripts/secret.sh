@@ -32,8 +32,8 @@ app=$(yq '.name' "$manifest")
 }
 
 if [[ "$action" != "delete" ]]; then
-  yq -e ".secrets // [] | index(\"$secret_name\") != null" "$manifest" >/dev/null || {
-    echo "$secret_name is not declared in $manifest; declare it and deploy the platform contract first" >&2
+  yq -e ".secrets // [] | contains([\"$secret_name\"])" "$manifest" >/dev/null || {
+    echo "$secret_name is not declared in $manifest; declare its name before storing a value" >&2
     exit 2
   }
 fi
