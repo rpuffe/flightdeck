@@ -209,6 +209,9 @@ studio app going into production use with SQLite + Litestream: the ECS
 defaults overlap old and new tasks on every rolling deploy, which risks two
 replication processes writing the same replica. Stateless services keep the
 ECS defaults — zero-downtime deploys, byte-identical plans.
+Availability Zone rebalancing is explicitly disabled for storage-backed
+services because ECS rejects rebalancing with a maximum deployment percentage
+of 100; stateless services retain the AWS default.
 
 **v0.7.0 addition — `alerts:` (optional).** Justified the same way: the
 studio app's replication process can fail while the healthcheck stays
