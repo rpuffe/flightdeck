@@ -23,7 +23,8 @@ class StudioDeployRegressionTests(unittest.TestCase):
             '"arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:${local.name_prefix}/${service}"',
             log_groups_statement,
         )
-        self.assertNotIn('resources = ["*"]', log_groups_statement)
+        resources_start = log_groups_statement.index("resources =")
+        self.assertNotIn('"*"', log_groups_statement[resources_start:])
 
     def test_stateful_service_disables_availability_zone_rebalancing(self):
         module = (ROOT / "modules" / "fargate-service" / "main.tf").read_text()

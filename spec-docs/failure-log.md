@@ -116,8 +116,9 @@ enabled ECS Availability Zone rebalancing on the existing service. ECS does
 not permit rebalancing when `maximumPercent = 100`, which Flightdeck uses with
 `minimumHealthyPercent = 0` to guarantee stop-then-start deployment for
 storage-backed single-writer services. **Fix:** explicitly disable rebalancing
-for storage-backed services while leaving stateless services unset on their
-200/100 rolling-deploy path. Lesson: when two provider/API settings are
+for storage-backed services while leaving stateless services unset—retaining
+the existing setting on update or the ECS default on create—on their 200/100
+rolling-deploy path. Lesson: when two provider/API settings are
 constrained as a pair, encode and test the coupling rather than relying on a
 service default.
 

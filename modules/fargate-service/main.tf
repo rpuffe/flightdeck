@@ -225,7 +225,8 @@ resource "aws_ecs_service" "app" {
   # updates whose maximum deployment percentage is <= 100 while rebalancing
   # is enabled. Stateful services deliberately use a 100/0 stop-then-start
   # deployment, so disable rebalancing for that path. Leave stateless services
-  # unset to preserve the provider/AWS default and their pre-v0.7 plan shape.
+  # unset: updates retain the service's existing setting, while new services
+  # use the ECS create default. Their 200/100 deploy works with either value.
   availability_zone_rebalancing = var.storage != "" ? "DISABLED" : null
 
   network_configuration {
