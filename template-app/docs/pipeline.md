@@ -59,6 +59,13 @@ tag that same SHA.
   caught — if `make preflight` passed but apply still fails for a
   schema-shaped reason, that's a platform bug, not something to work
   around.
+- **A task stops with `ResourceInitializationError` mentioning SSM or secret
+  retrieval**: the manifest declares a secret whose environment parameter is
+  missing or unreadable. Run `make secret-check
+  MANIFEST=../<app>/app-manifest.yaml ENV=<dev|prod> NAME=<NAME>` as the
+  operator. If it is missing, use `secret-set`; if it exists, verify bootstrap
+  was reapplied after the managed-secrets platform release. Never paste the
+  value into logs, GitHub, Terraform, or the manifest.
 - **Promotion fails with "no image for commit"**: the tag points at a
   commit `main` never built. See the promotion rule above — push to `main`
   first, then tag that SHA.

@@ -27,7 +27,7 @@ APP_DOMAIN := fd.robertpuffe.com
 .PHONY: fmt validate test plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
-        new-app check-release prepare-release
+        new-app check-release prepare-release secret-set secret-check secret-rotate secret-delete
 
 # --- Service operations ------------------------------------------------------
 # Scale operations are deliberate drift: terraform state keeps desired_count=1,
@@ -139,6 +139,25 @@ check-release:
 prepare-release:
 	@test -n "$(TAG)" || { echo "usage: make prepare-release TAG=vX.Y.Z"; exit 1; }
 	python3 scripts/release_consistency.py --set $(TAG)
+
+# Secret values are prompted silently by scripts/secret.sh and never accepted
+# as make variables, command-line arguments, environment variables, or
+# Terraform inputs. MANIFEST must declare NAME under `secrets:` first.
+secret-set:
+	@test -n "$(MANIFEST)" -a -n "$(ENV)" -a -n "$(NAME)" || { echo "usage: make secret-set MANIFEST=../app/app-manifest.yaml ENV=dev NAME=API_KEY"; exit 1; }
+	@./scripts/secret.sh set "$(MANIFEST)" "$(ENV)" "$(NAME)" "$(REGION)"
+
+secret-check:
+	@test -n "$(MANIFEST)" -a -n "$(ENV)" -a -n "$(NAME)" || { echo "usage: make secret-check MANIFEST=../app/app-manifest.yaml ENV=dev NAME=API_KEY"; exit 1; }
+	@./scripts/secret.sh check "$(MANIFEST)" "$(ENV)" "$(NAME)" "$(REGION)"
+
+secret-rotate:
+	@test -n "$(MANIFEST)" -a -n "$(ENV)" -a -n "$(NAME)" || { echo "usage: make secret-rotate MANIFEST=../app/app-manifest.yaml ENV=dev NAME=API_KEY"; exit 1; }
+	@./scripts/secret.sh rotate "$(MANIFEST)" "$(ENV)" "$(NAME)" "$(REGION)"
+
+secret-delete:
+	@test -n "$(MANIFEST)" -a -n "$(ENV)" -a -n "$(NAME)" || { echo "usage: make secret-delete MANIFEST=../app/app-manifest.yaml ENV=dev NAME=API_KEY"; exit 1; }
+	@./scripts/secret.sh delete "$(MANIFEST)" "$(ENV)" "$(NAME)" "$(REGION)"
 
 # --- Stage 1 worked example -------------------------------------------------
 

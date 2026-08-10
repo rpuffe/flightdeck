@@ -170,10 +170,22 @@ env:                    # non-secret config only
 **Rule:** every field must be justified by a real need discovered during manual
 deployment in W1. No speculative fields.
 
-Outcomes of applying the rule: the draft's `secrets: []` field was never
-needed and is gone (SSM injection lives in §11 v2); `image` is deliberately
-NOT a manifest field — CI computes it per build, apps never pin their own
-image reference.
+Outcomes of applying the rule: the draft's speculative `secrets: []` field was
+initially removed; it later returned in v0.8.0 only after Studio's SignWell
+integration created a concrete need. `image` is deliberately NOT a manifest
+field — CI computes it per build, apps never pin their own image reference.
+
+**v0.8.0 addition — `secrets:` (optional).** Entries are environment-variable
+names only, never values. Dev and prod resolve to distinct SSM Standard
+`SecureString` parameters under `/flightdeck/<app>/<environment>/<NAME>`.
+Terraform renders deterministic parameter ARNs but never creates the
+parameters or receives their values. ECS retrieves them at task start through
+the execution role (not the application task role), whose bootstrap-owned
+managed policy and permissions boundary restrict access to the app/environment
+path. Operators set/check/rotate values out of band with a silent-prompt
+workflow. Local preflight injects nothing, so apps must disable integrations
+cleanly and keep healthchecks dependency-free. Absent = no task-definition
+secret block or policy attachment, preserving prior behavior.
 
 **v0.4.0 addition — `storage: s3` (optional).** The first post-v1 field,
 justified the same way: the arcade app spec (persistent high scores) needed
@@ -444,8 +456,9 @@ Ideas land here instead of in v1 scope. Nothing below starts until the v1
 writeup exists. Roughly ordered by value-per-effort, not chronology.
 
 ### v2 — platform depth (makes the demo more real)
-- **Secrets injection via SSM Parameter Store** — populate the `secrets:` manifest
-  field; task role gets least-privilege read on its own path only.
+- **Secrets injection via SSM Parameter Store** — SHIPPED in v0.8.0 (§6):
+  names-only manifest declaration, out-of-band values, execution-role path
+  isolation, and no secret values in Terraform state.
 - **Multi-environment promotion** — SHIPPED in v0.3.0 (see §10): dev on main,
   prod on tag, build-once artifact promotion. Env-specific manifest overrides
   remain future work (none needed yet).

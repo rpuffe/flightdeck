@@ -12,6 +12,13 @@ data "aws_caller_identity" "current" {}
 locals {
   svc_name = var.environment == "prod" ? var.name : "${var.name}-${var.environment}"
 
+  container_secrets = [
+    for name in sort(var.secrets) : {
+      name      = name
+      valueFrom = "arn:aws:ssm:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:parameter/flightdeck/${var.name}/${var.environment}/${name}"
+    }
+  ]
+
   # Built via merge() with {}-default branches (never by indexing
   # aws_s3_bucket.data[0] etc. directly), so this tolerates count = 0 on
   # every optional resource and each unused opt-in is a no-op: with the
@@ -65,9 +72,16 @@ resource "aws_iam_role_policy_attachment" "exec" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Deliberately no permissions attached: v1 apps get no AWS API access at
-# all (least privilege). Revisit once the manifest grows secrets/database
-# blocks (spec §11 roadmap) that need scoped IAM.
+resource "aws_iam_role_policy_attachment" "exec_secrets" {
+  count = length(var.secrets) > 0 ? 1 : 0
+
+  role       = aws_iam_role.exec.name
+  policy_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/flightdeck-${local.svc_name}-exec-secrets"
+}
+
+# Deliberately no permissions attached: managed secret injection is performed
+# by ECS through the execution role before startup. Application code receives
+# an environment variable and the task role retains no SSM API access.
 resource "aws_iam_role" "task" {
   name                 = "flightdeck-${local.svc_name}-task"
   assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_assume.json
@@ -88,36 +102,41 @@ resource "aws_ecs_task_definition" "app" {
   task_role_arn            = aws_iam_role.task.arn
 
   container_definitions = jsonencode([
-    {
-      name      = "app"
-      image     = var.image
-      essential = true
+    merge(
+      {
+        name      = "app"
+        image     = var.image
+        essential = true
 
-      portMappings = [
-        {
-          containerPort = var.port
-          protocol      = "tcp"
-        }
-      ]
+        portMappings = [
+          {
+            containerPort = var.port
+            protocol      = "tcp"
+          }
+        ]
 
-      # Sorted for plan stability: map iteration order isn't guaranteed,
-      # a list built straight from the map would show spurious diffs.
-      environment = [
-        for k in sort(keys(local.container_env)) : {
-          name  = k
-          value = local.container_env[k]
-        }
-      ]
+        # Sorted for plan stability: map iteration order isn't guaranteed,
+        # a list built straight from the map would show spurious diffs.
+        environment = [
+          for k in sort(keys(local.container_env)) : {
+            name  = k
+            value = local.container_env[k]
+          }
+        ]
 
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.app.name
-          "awslogs-region"        = data.aws_region.current.region
-          "awslogs-stream-prefix" = local.svc_name
+        logConfiguration = {
+          logDriver = "awslogs"
+          options = {
+            "awslogs-group"         = aws_cloudwatch_log_group.app.name
+            "awslogs-region"        = data.aws_region.current.region
+            "awslogs-stream-prefix" = local.svc_name
+          }
         }
-      }
-    }
+      },
+      length(local.container_secrets) > 0 ? {
+        secrets = local.container_secrets
+      } : {}
+    )
   ])
 
   # Register the new immutable revision before deregistering the old one so a
