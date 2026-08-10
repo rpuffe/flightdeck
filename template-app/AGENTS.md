@@ -39,6 +39,12 @@ Cognito user pool + hosted login via injected `COGNITO_*` env vars (plain
 OIDC, no AWS SDK, no secrets). Your healthcheck must never require login —
 see `docs/contract.md`.
 
+**Optional `secrets:`** lists environment variable names whose values are
+operator-managed SSM SecureStrings. Names only — never put values in the
+manifest, repository, Terraform inputs, or command line. Local preflight does
+not inject secrets, so integrations must disable cleanly and `/healthz` must
+still pass. See `docs/contract.md`.
+
 ## Docs — read the one for the task at hand, not all of them upfront
 
 - `docs/contract.md` — runtime expectations: what your app must do, what the platform already does for you.

@@ -67,6 +67,43 @@ variable "env" {
   }
 }
 
+variable "secrets" {
+  description = "Secret environment variable names injected from SSM Parameter Store. Values are never Terraform inputs; each name resolves to /flightdeck/<app>/<environment>/<name>."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.secrets) <= 20
+    error_message = "secrets supports at most 20 entries."
+  }
+
+  validation {
+    condition     = alltrue([for name in var.secrets : can(regex("^[A-Z][A-Z0-9_]{0,63}$", name))])
+    error_message = "each secrets entry must match ^[A-Z][A-Z0-9_]{0,63}$."
+  }
+
+  validation {
+    condition     = length(distinct(var.secrets)) == length(var.secrets)
+    error_message = "secrets entries must be unique."
+  }
+
+  validation {
+    condition     = length(setintersection(toset(var.secrets), toset(keys(var.env)))) == 0
+    error_message = "a name cannot appear in both secrets and env."
+  }
+
+  validation {
+    condition = length(setintersection(toset(var.secrets), toset([
+      "STORAGE_BUCKET",
+      "COGNITO_USER_POOL_ID",
+      "COGNITO_CLIENT_ID",
+      "COGNITO_DOMAIN",
+      "COGNITO_ISSUER",
+    ]))) == 0
+    error_message = "secrets cannot use platform-reserved STORAGE_BUCKET or COGNITO_* names."
+  }
+}
+
 variable "storage" {
   description = "Optional platform storage the app needs. \"\" (default) = none, no new resources. \"s3\" = a private, per-environment S3 bucket; its name is injected into the container as the STORAGE_BUCKET env var, and the task role gets scoped read/write/list access to it. \"s3-retained\" = everything \"s3\" provides, plus versioning with 90-day noncurrent retention and force_destroy off — terraform cannot delete the bucket while it holds data, so the ledger survives a stack teardown."
   type        = string

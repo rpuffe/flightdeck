@@ -19,7 +19,7 @@ contract, the platform grew a full pipeline — pull requests run credential-fre
 checks, pushes to `main` deploy a dev environment, version tags promote the
 exact same image to prod — plus optional per-app S3 storage and a one-command
 lifecycle for both the platform and app repos (`make new-app`, `make upgrade`).
-Latest tagged release: **v0.7.2**. `main` contains the next unreleased
+Latest tagged release: **v0.8.0**. `main` contains the next unreleased
 hardening release; app repos remain on their pinned tag until that release is
 cut and deliberately adopted.
 
@@ -111,6 +111,8 @@ cpu: 256                 # fargate units
 memory: 512
 env:                      # non-secret config only
   LOG_LEVEL: info
+secrets:                  # optional names only; values are SSM SecureStrings
+  - API_KEY
 storage: s3               # optional — private per-env bucket, injected as STORAGE_BUCKET
 ```
 
@@ -119,6 +121,13 @@ needed durable state, per §6's rule. Setting it creates a private encrypted
 bucket per environment, grants the task role access to exactly that bucket —
 its first and only AWS permission — and injects `STORAGE_BUCKET`. Absent, the
 platform behaves byte-identically to before the field existed.
+
+`secrets:` lists environment variable names only. Operators store separate dev
+and prod values as SSM Standard `SecureString` parameters with
+`make secret-set`; ECS injects them at task start through an app/environment
+scoped execution-role policy. Secret values never enter manifests, Terraform
+inputs/state, command lines, or logs. Standard parameters use the AWS-managed
+SSM key and add no per-secret monthly charge at this platform's scale.
 
 The agent-facing side of the contract (v0.2.0) is a ~20-line `AGENTS.md`/
 `CLAUDE.md` index, task-scoped docs read on demand (`docs/contract.md`,
@@ -188,11 +197,13 @@ hardening.
   The image gate isn't theoretical: it caught a real fixable CVE
   (CVE-2026-33630, c-ares) in a *current* official `nginx-unprivileged` base
   image on its first run (failure log #2).
-- **Permissionless task roles, one narrow opt-in exception** — an app's ECS
+- **Permissionless task roles, narrow opt-in capabilities** — an app's ECS
   task role has no AWS API permissions by default. The only way to get any is
   setting `storage: s3` in the manifest, which grants access to exactly that
   app's own per-environment bucket (list/get/put/delete) and nothing else in
-  the account.
+  the account. Managed secret retrieval belongs to the ECS execution role,
+  scoped to the app/environment parameter path; the task role remains unable
+  to call SSM.
 - **ALB-only ingress, private subnets** — app services have no public IPs and
   accept traffic only from the shared ALB's security group; egress runs
   through fck-nat.
@@ -316,8 +327,8 @@ Idle, with nothing actively deployed beyond the shared platform pieces:
 See the [spec's roadmap](spec-docs/flightdeck-spec.md#11-roadmap--v2-and-beyond-parking-lot)
 for the full parking lot. A few near-term items:
 
-- **Secrets injection via SSM Parameter Store** — the manifest currently has
-  no `secrets:` field; v1 apps take config from non-secret env vars only.
+- **Environment-specific non-secret overrides** — secret values are isolated
+  per environment, but ordinary manifest `env:` values remain shared.
 - **Plan preview on PRs via a read-only plan role** — PR checks are
   deliberately credential-free (see Security defaults); a separate role with
   read-only + state-read permissions would let `terraform plan` comment on a

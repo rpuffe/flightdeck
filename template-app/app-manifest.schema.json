@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/rpuffe/flightdeck/blob/main/template-app/app-manifest.schema.json",
   "title": "flightdeck app-manifest",
-  "description": "The flightdeck app-manifest contract (v1, spec §6). Six required/optional core fields plus the optional 'storage', 'auth', and 'alerts' opt-ins, nothing else — CI supplies the image, never add an image field.",
+  "description": "The flightdeck app-manifest contract. Core fields plus optional storage, auth, alerts, and managed-secret opt-ins; CI supplies the image.",
   "type": "object",
   "properties": {
     "name": {
@@ -33,7 +33,7 @@
     },
     "env": {
       "type": "object",
-      "description": "Non-secret config only — NO secrets, tokens, or credentials; v1 has no secret support. Flat map of string keys to string values. STORAGE_BUCKET and the COGNITO_* keys are reserved — the platform injects them when 'storage: s3' / 'auth: cognito' are set; do not define them here.",
+      "description": "Non-secret config only — no tokens or credentials. Put secret names under 'secrets'. Flat map of string keys to string values. STORAGE_BUCKET and the COGNITO_* keys are reserved for platform injection.",
       "additionalProperties": {
         "type": "string"
       },
@@ -47,6 +47,20 @@
         ]
       },
       "default": {}
+    },
+    "secrets": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "description": "Secret environment variable names only. Values live in SSM Parameter Store at /flightdeck/<app>/<environment>/<NAME> and must never appear in the manifest, Terraform variables, logs, or command lines.",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+        "not": {
+          "enum": ["STORAGE_BUCKET", "COGNITO_USER_POOL_ID", "COGNITO_CLIENT_ID", "COGNITO_DOMAIN", "COGNITO_ISSUER"]
+        }
+      },
+      "default": []
     },
     "storage": {
       "type": "string",

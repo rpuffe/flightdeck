@@ -46,14 +46,41 @@ uses plain OIDC over HTTPS, no AWS SDK involved; see Auth below.)
 6. **Run non-root, on an unprivileged port.** No root at runtime, no port
    below 1024, no Docker socket, kernel parameters, or host devices. Add a
    non-root `USER` to the Dockerfile (details in `docs/dockerfile.md`).
-7. **Take all config from env vars** in the manifest's `env:` map. No
-   per-environment config files, no machine-specific flags. Use sane
-   defaults so the app also runs locally without the manifest.
-8. **No secrets, anywhere — hard constraint, not an inconvenience.** No API
-   keys, tokens, passwords, or credentials in `env:`, in code, in the
-   Dockerfile, or in the repo. v1 has no secret support. If the spec
-   requires a secret, **stop and flag it**: the app cannot be built on v1
-   as specced.
+7. **Take all config from env vars.** Put non-secret values in the manifest's
+   `env:` map and declare secret names under `secrets:`. No per-environment
+   config files or machine-specific flags. Use sane defaults so the app also
+   runs locally without the manifest.
+8. **Secret values never belong in source-controlled inputs.** No API keys,
+   tokens, passwords, or credentials in `env:`, code, Dockerfiles, manifests,
+   Terraform variables, or the repo. Declare names only under `secrets:` and
+   use the operator workflow below to store values out of band.
+
+## Managed secrets (optional)
+
+```yaml
+secrets:
+  - SIGNWELL_API_KEY
+```
+
+- Names must match `^[A-Z][A-Z0-9_]{0,63}$`, be unique, and cannot overlap
+  `env:` or platform-reserved keys. At most 20 are allowed.
+- Dev and prod are separate SSM Standard `SecureString` parameters at
+  `/flightdeck/<app>/<environment>/<NAME>`. Terraform state and ECS task
+  definitions contain parameter ARNs, never values.
+- From a Flightdeck checkout, use `make secret-set`, `secret-check`, or
+  `secret-rotate` with `MANIFEST`, `ENV`, and `NAME`. `secret-set` is
+  creation-only; an existing parameter must use `secret-rotate`, which forces
+  a new ECS deployment because secrets are injected only at task start. Values
+  are prompted silently and never accepted on the command line.
+- To remove a credential: revoke it at the provider first, remove the manifest
+  declaration and deploy, then run the confirmation-gated `secret-delete`.
+- ECS reads parameters through the task **execution role**, scoped to the app
+  and environment path. The application task role gets no SSM API access.
+- Local preflight intentionally injects no secrets. The app must boot and its
+  healthcheck must pass with integrations disabled when a secret is absent
+  locally. A deployed manifest whose parameter is missing or unreadable fails
+  task startup visibly.
+- Never print a secret or include it in an exception, response, or log.
 
 ## Storage (optional)
 

@@ -41,12 +41,12 @@ check-tools:
 validate-manifest:
 	@test -f $(MANIFEST) || { echo "$(MANIFEST) not found at repo root → see docs/contract.md"; exit 1; }
 	@for k in $$(yq 'keys | .[]' $(MANIFEST)); do \
-	  case " name port healthcheck cpu memory env storage auth alerts " in \
+	  case " name port healthcheck cpu memory env secrets storage auth alerts " in \
 	    *" $$k "*) : ;; \
 	    *) if [ "$$k" = "image" ]; then \
 	         echo "app-manifest.yaml has an 'image' field — CI supplies the image, never add one → see docs/contract.md"; \
 	       else \
-	         echo "app-manifest.yaml has unknown field '$$k' — only name, port, healthcheck, cpu, memory, env, storage, auth, alerts are allowed → see docs/contract.md"; \
+	         echo "app-manifest.yaml has unknown field '$$k' — only name, port, healthcheck, cpu, memory, env, secrets, storage, auth, alerts are allowed → see docs/contract.md"; \
 	       fi; \
 	       exit 1 ;; \
 	  esac; \
@@ -108,6 +108,38 @@ validate-manifest:
 	      exit 1; \
 	    fi; \
 	  done; \
+	fi
+	@if [ "$$(yq '.secrets' $(MANIFEST))" != "null" ]; then \
+	  if [ "$$(yq '.secrets | tag' $(MANIFEST))" != "!!seq" ]; then \
+	    echo "secrets must be a list of environment variable names → see docs/contract.md"; exit 1; \
+	  fi; \
+	  count=$$(yq '.secrets | length' $(MANIFEST)); \
+	  if [ "$$count" -gt 20 ] 2>/dev/null; then \
+	    echo "secrets has $$count entries — at most 20 are supported → see docs/contract.md"; exit 1; \
+	  fi; \
+	  i=0; \
+	  while [ "$$i" -lt "$$count" ]; do \
+	    t=$$(yq ".secrets[$$i] | tag" $(MANIFEST)); \
+	    n=$$(yq ".secrets[$$i]" $(MANIFEST)); \
+	    if [ "$$t" != "!!str" ]; then \
+	      echo "secrets[$$i] must be a string name (found $$t) → see docs/contract.md"; exit 1; \
+	    fi; \
+	    echo "$$n" | grep -Eq '^[A-Z][A-Z0-9_]{0,63}$$' || { \
+	      echo "secrets[$$i] '$$n' is invalid — must match ^[A-Z][A-Z0-9_]{0,63}$$ → see docs/contract.md"; exit 1; \
+	    }; \
+	    case "$$n" in \
+	      STORAGE_BUCKET|COGNITO_USER_POOL_ID|COGNITO_CLIENT_ID|COGNITO_DOMAIN|COGNITO_ISSUER) \
+	        echo "secrets[$$i] '$$n' is reserved for platform injection → see docs/contract.md"; exit 1 ;; \
+	    esac; \
+	    if [ "$$(yq ".env | has(\"$$n\")" $(MANIFEST))" = "true" ]; then \
+	      echo "'$$n' cannot appear in both env and secrets → see docs/contract.md"; exit 1; \
+	    fi; \
+	    i=$$((i + 1)); \
+	  done; \
+	  dupes=$$(yq '.secrets[]' $(MANIFEST) | sort | uniq -d); \
+	  if [ -n "$$dupes" ]; then \
+	    echo "secrets entries must be unique — duplicate(s): $$dupes → see docs/contract.md"; exit 1; \
+	  fi; \
 	fi
 	@if [ "$$(yq '.storage' $(MANIFEST))" != "null" ]; then \
 	  storage=$$(yq '.storage' $(MANIFEST)); \

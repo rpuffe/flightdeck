@@ -34,6 +34,7 @@ locals {
     for app in toset(var.apps) : {
       for service in [app, "${app}-dev"] : service => {
         app         = app
+        environment = service == app ? "prod" : "dev"
         bucket_name = "${local.name_prefix}-${service}-data-${data.aws_caller_identity.current.account_id}"
       }
     }
@@ -144,6 +145,15 @@ data "aws_iam_policy_document" "task_permissions_boundary" {
     ]
     resources = [for bucket in each.value.data_bucket_names : "arn:aws:s3:::${bucket}/*"]
   }
+
+  statement {
+    sid     = "ReadOwnManagedSecrets"
+    actions = ["ssm:GetParameters"]
+    resources = [
+      for environment in ["dev", "prod"] :
+      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_prefix}/${each.key}/${environment}/*"
+    ]
+  }
 }
 
 resource "aws_iam_policy" "task_permissions_boundary" {
@@ -186,6 +196,27 @@ resource "aws_iam_policy" "task_storage" {
   name        = "${local.name_prefix}-${each.key}-task-storage"
   description = "Optional S3 storage permissions for the ${each.key} task role"
   policy      = data.aws_iam_policy_document.task_storage_permissions[each.key].json
+}
+
+# ECS resolves task-definition secret references before container startup, so
+# this permission belongs to the execution role. The policy is bootstrap-owned
+# and path-scoped; app Terraform can attach it but can never broaden it.
+data "aws_iam_policy_document" "exec_secret_permissions" {
+  for_each = local.app_services
+
+  statement {
+    sid       = "ReadEnvironmentManagedSecrets"
+    actions   = ["ssm:GetParameters"]
+    resources = ["arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_prefix}/${each.value.app}/${each.value.environment}/*"]
+  }
+}
+
+resource "aws_iam_policy" "exec_secrets" {
+  for_each = local.app_services
+
+  name        = "${local.name_prefix}-${each.key}-exec-secrets"
+  description = "Optional SSM secret injection for the ${each.key} ECS execution role"
+  policy      = data.aws_iam_policy_document.exec_secret_permissions[each.key].json
 }
 
 data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
@@ -565,6 +596,27 @@ data "aws_iam_policy_document" "deploy_identity_permissions" {
         values   = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${local.name_prefix}-${statement.value}-task-storage"]
       }
 
+
+      condition {
+        test     = "ArnEquals"
+        variable = "iam:PermissionsBoundary"
+        values   = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${each.value.permissions_boundary}"]
+      }
+    }
+  }
+
+  dynamic "statement" {
+    for_each = toset(each.value.service_names)
+
+    content {
+      actions   = ["iam:AttachRolePolicy"]
+      resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name_prefix}-${statement.value}-exec"]
+
+      condition {
+        test     = "ArnEquals"
+        variable = "iam:PolicyARN"
+        values   = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${local.name_prefix}-${statement.value}-exec-secrets"]
+      }
 
       condition {
         test     = "ArnEquals"
