@@ -1,8 +1,8 @@
-# Fleet scaler: nightly cool-down + an ALB wake endpoint. Net-new resources
-# only (spec 5b). This is the automated counterpart to `make stop`/`make
-# start`: the schedule below drives the same desired-count lever those
-# targets do, and the wake endpoint lets a visitor bring a stopped app back
-# up without shell access.
+# Fleet scaler: idle sleep, nightly cool-down, optional morning warm-up, and
+# an ALB wake endpoint. Net-new resources only (spec 5b). This is the
+# automated counterpart to `make stop`/`make start`: the schedules below drive
+# the same desired-count lever those targets do, and the wake endpoint lets a
+# visitor bring a stopped app back up without shell access.
 
 # ---------------------------------------------------------------------------
 # Lambda package
@@ -53,17 +53,40 @@ data "aws_iam_policy_document" "scaler_permissions" {
     ]
   }
 
+  # sleep-idle's grace rule: a service whose newest task is younger than the
+  # idle window was just woken or deployed and is left alone.
+  statement {
+    sid       = "EcsTaskAgeRead"
+    actions   = ["ecs:ListTasks"]
+    resources = ["*"]
+    condition {
+      test     = "ArnEquals"
+      variable = "ecs:cluster"
+      values   = [aws_ecs_cluster.this.arn]
+    }
+  }
+
+  statement {
+    sid     = "EcsTaskDescribe"
+    actions = ["ecs:DescribeTasks"]
+    resources = [
+      "arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.this.name}/*",
+    ]
+  }
+
   # The wake dashboard reads target health to distinguish running services
-  # from tasks that are still warming.
+  # from tasks that are still warming; sleep-idle reads per-target-group
+  # RequestCount to tell "unvisited" from "in use".
   statement {
     sid = "ElbTargetHealthRead"
     actions = [
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",
+      "cloudwatch:GetMetricData",
     ]
-    # None of these three actions support resource-level scoping -- AWS
-    # requires "*" for Describe* calls on ELBv2. Read-only, so this is a
-    # visibility grant, not a mutation risk.
+    # None of these actions support resource-level scoping -- AWS requires
+    # "*" for Describe* calls on ELBv2 and for GetMetricData. Read-only, so
+    # this is a visibility grant, not a mutation risk.
     resources = ["*"]
   }
 
@@ -131,8 +154,9 @@ resource "aws_lambda_function" "scaler" {
 
   environment {
     variables = {
-      CLUSTER    = aws_ecs_cluster.this.name
-      APP_DOMAIN = local.child_zone_name
+      CLUSTER            = aws_ecs_cluster.this.name
+      APP_DOMAIN         = local.child_zone_name
+      IDLE_SLEEP_MINUTES = tostring(var.idle_sleep_minutes)
     }
   }
 
@@ -203,6 +227,61 @@ resource "aws_scheduler_schedule" "nightly_cooldown" {
     arn      = aws_lambda_function.scaler.arn
     role_arn = aws_iam_role.scheduler_invoke.arn
     input    = jsonencode({ action = "stop-all" })
+  }
+}
+
+# Idle sleep: every few minutes, scale to 0 any service that has served zero
+# ALB requests for var.idle_sleep_minutes. This is what makes on-demand the
+# fleet's default state -- the wake endpoint brings an app up, a visitor uses
+# it, and it puts itself back to sleep -- instead of the daily warm window
+# paying for ~16 task-hours per service whether or not anyone visited.
+# Same desired-count drift semantics as the cool-down; the Lambda's grace
+# rule (newest task must be older than the window) keeps it from undoing a
+# wake or a deploy that has not had a chance to be visited yet.
+resource "aws_scheduler_schedule" "idle_sleep" {
+  count = var.idle_sleep_minutes > 0 ? 1 : 0
+
+  name                = "${local.name_prefix}-idle-sleep"
+  schedule_expression = "rate(10 minutes)"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = aws_lambda_function.scaler.arn
+    role_arn = aws_iam_role.scheduler_invoke.arn
+    input    = jsonencode({ action = "sleep-idle" })
+  }
+}
+
+# Morning warm-up: start the listed services at 07:00 Central, so those apps
+# are already healthy rather than sitting behind the ALB's 503 until someone
+# uses the wake endpoint. Same desired-count drift semantics as the cool-down.
+#
+# Off by default since idle sleep landed: a warmed service that nobody visits
+# is put back to sleep within var.idle_sleep_minutes anyway, so the warm
+# window only buys a faster first visit at the cost of the whole window's
+# task-hours. Scoped rather than start-all on purpose, and count instead of
+# an unconditional resource so the default [] removes the schedule outright.
+resource "aws_scheduler_schedule" "morning_warmup" {
+  count = length(var.morning_warmup_services) > 0 ? 1 : 0
+
+  name                         = "${local.name_prefix}-morning-warmup"
+  schedule_expression          = "cron(0 7 * * ? *)"
+  schedule_expression_timezone = "America/Chicago"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = aws_lambda_function.scaler.arn
+    role_arn = aws_iam_role.scheduler_invoke.arn
+    input = jsonencode({
+      action   = "start"
+      services = var.morning_warmup_services
+    })
   }
 }
 

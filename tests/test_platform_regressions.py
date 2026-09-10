@@ -40,6 +40,75 @@ class StudioDeployRegressionTests(unittest.TestCase):
             self.assertIn(setting, module)
 
 
+class FleetScheduleRegressionTests(unittest.TestCase):
+    def test_morning_warmup_is_scoped_and_never_starts_the_whole_fleet(self):
+        scaler = (ROOT / "bootstrap" / "scaler.tf").read_text()
+
+        start = scaler.index('resource "aws_scheduler_schedule" "morning_warmup"')
+        end = scaler.index("\nresource ", start + 1)
+        warmup = scaler[start:end]
+
+        self.assertIn('schedule_expression          = "cron(0 7 * * ? *)"', warmup)
+        self.assertIn('schedule_expression_timezone = "America/Chicago"', warmup)
+        self.assertIn('action   = "start"', warmup)
+        self.assertIn("services = var.morning_warmup_services", warmup)
+        # The scoped list is the cost control: start-all here would warm every
+        # remaining dev service too, well over doubling the daily task-hours.
+        self.assertNotIn("start-all", warmup)
+
+    def test_nightly_cooldown_still_stops_everything(self):
+        scaler = (ROOT / "bootstrap" / "scaler.tf").read_text()
+
+        start = scaler.index('resource "aws_scheduler_schedule" "nightly_cooldown"')
+        end = scaler.index("\nresource ", start + 1)
+        cooldown = scaler[start:end]
+
+        self.assertIn('action = "stop-all"', cooldown)
+        self.assertIn('schedule_expression = "cron(30 23 * * ? *)"', cooldown)
+
+    def test_idle_sleep_schedule_sweeps_on_a_rate_and_is_removable(self):
+        scaler = (ROOT / "bootstrap" / "scaler.tf").read_text()
+
+        start = scaler.index('resource "aws_scheduler_schedule" "idle_sleep"')
+        end = scaler.index("\nresource ", start + 1)
+        idle_sleep = scaler[start:end]
+
+        self.assertIn("count = var.idle_sleep_minutes > 0 ? 1 : 0", idle_sleep)
+        self.assertIn('schedule_expression = "rate(10 minutes)"', idle_sleep)
+        self.assertIn('action = "sleep-idle"', idle_sleep)
+
+    def test_morning_warmup_defaults_to_off(self):
+        variables = (ROOT / "bootstrap" / "variables.tf").read_text()
+
+        start = variables.index('variable "morning_warmup_services"')
+        end = variables.index("\nvariable ", start + 1)
+        block = variables[start:end]
+
+        self.assertIn("default     = []", block)
+
+
+class FargateSpotRegressionTests(unittest.TestCase):
+    def test_service_uses_capacity_provider_strategy_not_launch_type(self):
+        module = (ROOT / "modules" / "fargate-service" / "main.tf").read_text()
+
+        self.assertIn("capacity_provider = var.capacity_provider", module)
+        self.assertNotIn('launch_type     = "FARGATE"', module)
+
+    def test_capacity_provider_defaults_to_fargate_spot(self):
+        variables = (ROOT / "modules" / "fargate-service" / "variables.tf").read_text()
+
+        start = variables.index('variable "capacity_provider"')
+        end = variables.index("\nvariable ", start + 1) if "\nvariable " in variables[start:] else len(variables)
+        block = variables[start:end]
+
+        self.assertIn('default     = "FARGATE_SPOT"', block)
+
+    def test_cluster_attaches_both_fargate_capacity_providers(self):
+        platform = (ROOT / "bootstrap" / "platform.tf").read_text()
+
+        self.assertIn('capacity_providers = ["FARGATE", "FARGATE_SPOT"]', platform)
+
+
 class ManagedSecretsRegressionTests(unittest.TestCase):
     BASE_MANIFEST = """\
 name: secret-test

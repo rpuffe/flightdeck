@@ -19,7 +19,7 @@ contract, the platform grew a full pipeline — pull requests run credential-fre
 checks, pushes to `main` deploy a dev environment, version tags promote the
 exact same image to prod — plus optional per-app S3 storage and a one-command
 lifecycle for both the platform and app repos (`make new-app`, `make upgrade`).
-Latest tagged release: **v0.9.1**. `main` contains the next unreleased
+Latest tagged release: **v0.10.0**. `main` contains the next unreleased
 hardening release; app repos remain on their pinned tag until that release is
 cut and deliberately adopted.
 
@@ -33,8 +33,9 @@ controls in a low-cost personal account; the
 accepted risks, and controls a business production environment would still
 need.
 
-(Live-app availability varies — services get scaled to zero between demos via
-`make stop`/`make stop-all`, and the next deploy silently restores them.
+(Live apps are on demand: a sleeping service is woken from
+[wake.fd.robertpuffe.com](https://wake.fd.robertpuffe.com/) in about a
+minute and scales itself back to zero after 30 idle minutes, see Cost below.
 `hello`, the Stage 1 worked example, stays destroyed on purpose: it's the
 teardown proof, see Cost below.)
 
@@ -301,15 +302,23 @@ Idle, with nothing actively deployed beyond the shared platform pieces:
   Gateway. Documented availability tradeoff — a single instance, no HA; if
   its AZ fails, private-subnet egress is down until it's replaced. Cost over
   availability, acceptable for a personal platform (spec §5, `bootstrap/vpc.tf`).
-- One shared ALB: ~$16/mo, amortized across every app behind it.
-- Fargate: ~$9/mo per always-on 256 CPU / 512 MB task — and each environment
-  is its own task, so an app running both dev and prod costs ~$18/mo, not $9.
+- One shared ALB: ~$16/mo, amortized across every app behind it — plus
+  ~$11/mo for the three public IPv4 addresses the ALB and fck-nat hold.
+  Together with DNS and alarms that is a ~$35/mo floor that no amount of
+  scaling to zero removes; shrinking it is roadmap (spec §11).
+- Fargate: ~$9/mo per always-on 256 CPU / 512 MB on-demand task; services
+  run on Fargate Spot by default (v0.10.0), about 70% less. Each environment
+  is its own task, so an app running both dev and prod pays twice.
+  Apps are on demand by default: a sleeping service is woken from the
+  status page at `wake.<zone>` (healthy in about a minute) and is put back
+  to sleep by the scaler after 30 minutes without requests
+  (`idle_sleep_minutes`), with a nightly stop-all as the backstop.
   `make stop SVC=<name>` / `make start SVC=<name>` scale one service to 0/1;
-  `make stop-all` / `make start-all` do the same across the whole cluster —
-  a deliberate overnight off-switch. Terraform state still says
-  `desired_count=1`, so that service's next deploy silently restores it:
-  documented drift, not a bug.
-- A budget alarm fires at $30/mo (`bootstrap/platform.tf`).
+  `make stop-all` / `make start-all` do the same across the whole cluster.
+  Terraform state still says `desired_count=1`, so a service's next deploy
+  silently restores it: documented drift, not a bug.
+- A budget alarm fires at $45/mo (`bootstrap/platform.tf`), set above the
+  floor so it flags compute drift rather than firing permanently.
 - `make destroy-bootstrap` (and the per-app destroy targets) tear the stack
   down cleanly when not demoing — verified, not just claimed: a
   `terraform destroy` of the `hello` stack completed with

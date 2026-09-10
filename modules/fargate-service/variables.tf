@@ -51,6 +51,17 @@ variable "memory" {
   type        = number
 }
 
+variable "capacity_provider" {
+  description = "Fargate capacity provider for the service. FARGATE_SPOT (default) is ~70% cheaper and tolerates the two-minute interruption notice by letting ECS restart the task; FARGATE is the on-demand escape hatch. Platform-level choice, not a manifest field: no app has needed on-demand yet."
+  type        = string
+  default     = "FARGATE_SPOT"
+
+  validation {
+    condition     = contains(["FARGATE", "FARGATE_SPOT"], var.capacity_provider)
+    error_message = "capacity_provider must be FARGATE or FARGATE_SPOT."
+  }
+}
+
 variable "env" {
   description = "Non-secret environment variables for the container."
   type        = map(string)

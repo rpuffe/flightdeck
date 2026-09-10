@@ -1,3 +1,4 @@
+import datetime
 import importlib.util
 import json
 import os
@@ -13,8 +14,9 @@ SCALER_PATH = ROOT / "bootstrap" / "lambda" / "scaler.py"
 
 os.environ.setdefault("CLUSTER", "flightdeck")
 os.environ.setdefault("APP_DOMAIN", "fd.example.com")
+os.environ.setdefault("IDLE_SLEEP_MINUTES", "30")
 
-_clients = {"ecs": MagicMock(), "elbv2": MagicMock()}
+_clients = {"ecs": MagicMock(), "elbv2": MagicMock(), "cloudwatch": MagicMock()}
 sys.modules.setdefault(
     "boto3",
     types.SimpleNamespace(client=lambda service: _clients[service]),
@@ -38,6 +40,7 @@ class ScalerTests(unittest.TestCase):
     def setUp(self):
         scaler.ecs = MagicMock()
         scaler.elbv2 = MagicMock()
+        scaler.cloudwatch = MagicMock()
 
     def test_lists_and_describes_services_in_ten_item_chunks(self):
         arns = [f"arn:aws:ecs:region:account:service/flightdeck/app-{index}" for index in range(12)]
@@ -199,6 +202,167 @@ class ScalerTests(unittest.TestCase):
         self.assertEqual(
             "ignored", scaler.lambda_handler({"unexpected": True}, None)["status"]
         )
+
+    def test_sleep_idle_stops_only_the_truly_idle_service(self):
+        now = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        dims = {
+            "active": ("targetgroup/flightdeck-active/1", "app/flightdeck/1"),
+            "idle": ("targetgroup/flightdeck-idle/1", "app/flightdeck/1"),
+            "no-tasks": ("targetgroup/flightdeck-no-tasks/1", "app/flightdeck/1"),
+            "warm": ("targetgroup/flightdeck-warm/1", "app/flightdeck/1"),
+        }
+        newest_by_name = {
+            "idle": now - datetime.timedelta(minutes=60),
+            "no-tasks": None,
+            "warm": now - datetime.timedelta(minutes=5),
+        }
+
+        with (
+            patch.object(
+                scaler,
+                "_list_cluster_services",
+                return_value={
+                    name: {"desired": 1}
+                    for name in ("active", "idle", "no-target-group", "no-tasks", "warm")
+                },
+            ),
+            patch.object(scaler, "_target_groups_by_service", return_value=dims) as tgs,
+            patch.object(
+                scaler,
+                "_request_counts",
+                return_value={"active": 5, "idle": 0, "no-tasks": 0, "warm": 0},
+            ),
+            patch.object(
+                scaler,
+                "_newest_task_created_at",
+                side_effect=lambda name: newest_by_name[name],
+            ),
+            patch.object(scaler, "_stop_service", return_value="ok") as stop,
+            patch("builtins.print") as log,
+        ):
+            response = scaler._handle_sleep_idle(now=now)
+
+        tgs.assert_called_once_with(["active", "idle", "no-target-group", "no-tasks", "warm"])
+        self.assertEqual(
+            {
+                "active": "active",
+                "idle": "ok",
+                "no-target-group": "no-target-group",
+                "no-tasks": "no-tasks",
+                "warm": "warm",
+            },
+            response["results"],
+        )
+        stop.assert_called_once_with("idle")
+        result_log = json.loads(log.call_args_list[-1].args[0])
+        self.assertEqual("action_result", result_log["event_type"])
+        self.assertEqual("sleep-idle", result_log["action"])
+
+    def test_sleep_idle_is_ignored_when_disabled(self):
+        with (
+            patch.object(scaler, "IDLE_SLEEP_MINUTES", 0),
+            patch.object(scaler, "_list_cluster_services") as list_services,
+        ):
+            response = scaler._handle_sleep_idle()
+
+        self.assertEqual("ignored", response["status"])
+        list_services.assert_not_called()
+
+    def test_action_event_dispatches_sleep_idle(self):
+        with patch.object(
+            scaler, "_handle_sleep_idle", return_value={"status": "ok"}
+        ) as handler:
+            response = scaler._handle_action_event({"action": "sleep-idle"})
+
+        handler.assert_called_once_with()
+        self.assertEqual({"status": "ok"}, response)
+
+    def test_target_groups_by_service_maps_dimensions_and_skips_detached(self):
+        scaler.elbv2.describe_target_groups.return_value = {
+            "TargetGroups": [
+                {
+                    "TargetGroupName": "flightdeck-golf",
+                    "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/flightdeck-golf/abc",
+                    "LoadBalancerArns": [
+                        "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/flightdeck/def"
+                    ],
+                },
+                {
+                    "TargetGroupName": "flightdeck-detached",
+                    "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/flightdeck-detached/xyz",
+                    "LoadBalancerArns": [],
+                },
+            ]
+        }
+
+        result = scaler._target_groups_by_service(["golf", "detached"])
+
+        self.assertEqual(
+            {"golf": ("targetgroup/flightdeck-golf/abc", "app/flightdeck/def")}, result
+        )
+
+    def test_target_groups_by_service_falls_back_to_single_lookups(self):
+        scaler.elbv2.describe_target_groups.side_effect = [
+            RuntimeError("batch describe failed"),
+            {
+                "TargetGroups": [
+                    {
+                        "TargetGroupName": "flightdeck-a",
+                        "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123:targetgroup/flightdeck-a/1",
+                        "LoadBalancerArns": [
+                            "arn:aws:elasticloadbalancing:us-east-1:123:loadbalancer/app/flightdeck/1"
+                        ],
+                    }
+                ]
+            },
+            RuntimeError("no such target group: b"),
+        ]
+
+        result = scaler._target_groups_by_service(["a", "b"])
+
+        self.assertEqual({"a": ("targetgroup/flightdeck-a/1", "app/flightdeck/1")}, result)
+
+    def test_request_counts_builds_one_query_per_service_and_sums_values(self):
+        dims = {
+            "golf": ("targetgroup/flightdeck-golf/abc", "app/flightdeck/def"),
+            "beta": ("targetgroup/flightdeck-beta/xyz", "app/flightdeck/def"),
+        }
+        start = datetime.datetime(2024, 1, 1, 11, 50, tzinfo=datetime.timezone.utc)
+        end = datetime.datetime(2024, 1, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        scaler.cloudwatch.get_metric_data.return_value = {
+            "MetricDataResults": [
+                {"Id": "q0", "Values": [3, 4]},
+                {"Id": "q1"},
+            ]
+        }
+
+        result = scaler._request_counts(dims, start, end)
+
+        self.assertEqual({"beta": 7, "golf": 0}, result)
+        queries = scaler.cloudwatch.get_metric_data.call_args.kwargs["MetricDataQueries"]
+        self.assertEqual(2, len(queries))
+        for query in queries:
+            metric = query["MetricStat"]
+            self.assertEqual("AWS/ApplicationELB", metric["Metric"]["Namespace"])
+            self.assertEqual("RequestCount", metric["Metric"]["MetricName"])
+            self.assertEqual("Sum", metric["Stat"])
+            self.assertGreaterEqual(metric["Period"], 60)
+            self.assertEqual(0, metric["Period"] % 60)
+
+    def test_index_response_mentions_idle_note_only_when_enabled(self):
+        with (
+            patch.object(scaler, "_list_cluster_services", return_value={}),
+            patch.object(scaler, "IDLE_SLEEP_MINUTES", 30),
+        ):
+            enabled = scaler._index_response()
+        self.assertIn("go back to sleep", enabled["body"])
+
+        with (
+            patch.object(scaler, "_list_cluster_services", return_value={}),
+            patch.object(scaler, "IDLE_SLEEP_MINUTES", 0),
+        ):
+            disabled = scaler._index_response()
+        self.assertNotIn("go back to sleep", disabled["body"])
 
 
 if __name__ == "__main__":

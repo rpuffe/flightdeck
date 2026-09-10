@@ -236,7 +236,23 @@ resource "aws_ecs_service" "app" {
   cluster         = var.cluster_arn
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
-  launch_type     = "FARGATE"
+
+  # Capacity provider instead of launch_type = "FARGATE" (v0.10.0): the
+  # default FARGATE_SPOT is ~70% cheaper per task-hour, and an interruption
+  # is just an unplanned restart for a desired_count=1 service behind an ALB
+  # -- ECS reschedules it on its own. The cluster attaches both providers
+  # (bootstrap/platform.tf).
+  capacity_provider_strategy {
+    capacity_provider = var.capacity_provider
+    weight            = 1
+  }
+
+  # Required by the provider to change a capacity provider strategy in place
+  # (it refuses the plan otherwise), including a service's first move off
+  # launch_type. Only takes effect when an update is already happening, so
+  # it does not perturb a no-change plan; when it does, the rolling deploy
+  # follows the min/max-healthy rules below like any other deploy.
+  force_new_deployment = true
 
   # Stateful services (any storage opt-in) deploy stop-then-start: the old
   # task is stopped and drained before the replacement starts, so a local

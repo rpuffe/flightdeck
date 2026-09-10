@@ -39,6 +39,43 @@ variable "apps" {
   default     = ["ping", "todo", "tasks", "board", "golf", "studio"]
 }
 
+variable "idle_sleep_minutes" {
+  description = "Minutes without ALB requests after which a running service is scaled to 0 by the idle-sleep schedule. Wake it again from the wake endpoint, `make start`, or a deploy. 0 disables idle sleep (removes the schedule and makes the Lambda action a no-op)."
+  type        = number
+  default     = 30
+
+  validation {
+    # Floor of 20: the sweep runs every 10 minutes and ALB RequestCount can
+    # lag by a few minutes, so a window near 10 can miss a real visit between
+    # sweeps and stop an app that is in use.
+    condition     = var.idle_sleep_minutes == 0 || (var.idle_sleep_minutes >= 20 && var.idle_sleep_minutes <= 1440)
+    error_message = "idle_sleep_minutes must be 0 (disabled) or between 20 and 1440 (10-minute sweep cadence plus metric lag)."
+  }
+}
+
+variable "morning_warmup_services" {
+  description = "ECS service names started every morning by the optional warm-up schedule. Service names, not app names: an app registered in var.apps runs as both <name> and <name>-dev, and only the ones listed here are warmed — everything else stays asleep until a deploy, `make start`, or the wake endpoint brings it up. Default [] (no schedule): with idle sleep on, a warmed-but-unvisited service is put back to sleep anyway, so list a service here only when a fast first visit is worth its whole warm window."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(distinct(var.morning_warmup_services)) == length(var.morning_warmup_services)
+    error_message = "morning_warmup_services entries must be unique."
+  }
+
+  # Each entry must belong to a registered app, either as the prod service
+  # (<app>) or its dev counterpart (<app>-dev). A typo here would otherwise
+  # apply cleanly and then fail silently at 07:00 every morning inside the
+  # Lambda's per-service try/except, which records the error and moves on.
+  validation {
+    condition = alltrue([
+      for service in var.morning_warmup_services :
+      contains(var.apps, service) || contains([for app in var.apps : "${app}-dev"], service)
+    ])
+    error_message = "Every morning_warmup_services entry must be a registered app (var.apps) or its -dev service."
+  }
+}
+
 variable "github_repository_ids" {
   description = "Immutable GitHub database IDs keyed by registered app name; required before bootstrap can create that app's deploy role"
   type        = map(string)
@@ -125,9 +162,9 @@ variable "mail_managed_zones" {
 }
 
 variable "budget_limit_usd" {
-  description = "Monthly budget alarm threshold in USD"
+  description = "Monthly budget alarm threshold in USD. The always-on floor (ALB, its two public IPv4 addresses, fck-nat, DNS) is ~$35/mo on its own, so the alarm sits above that to flag compute drift rather than fire permanently."
   type        = string
-  default     = "30"
+  default     = "45"
 }
 
 variable "alert_email" {
