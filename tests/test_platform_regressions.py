@@ -283,5 +283,19 @@ memory: 512
         )
 
 
+class PromotionRegressionTests(unittest.TestCase):
+    def test_promotion_copies_layers_not_just_the_manifest(self):
+        promote = (ROOT / ".github" / "workflows" / "promote.yml").read_text()
+
+        # A manifest-only put-image succeeds only when every layer already
+        # exists in the prod repo, and fails with LayersNotFoundException the
+        # first time a dev build carries a new base layer. crane copy moves
+        # layers too and keeps the digest identical.
+        self.assertIn("crane copy", promote)
+        self.assertNotIn("aws ecr put-image", promote)
+        self.assertNotIn("aws ecr batch-get-image", promote)
+        self.assertIn('if [ "$source_digest" != "$prod_digest" ]', promote)
+
+
 if __name__ == "__main__":
     unittest.main()
