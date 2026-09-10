@@ -76,10 +76,13 @@ default, IAM user `agent-infra-tool` (static creds).
   restores).
 
 ## Live apps (on demand: wake from wake.fd, asleep again after 30 idle min)
-todo, tasks, board (+board-dev), golf (golf-dev — Robert's 3-hole mini golf,
-storage: s3 available, not yet wired for high scores), ping (Stage-2 exit test).
-hello was destroyed as the teardown proof. All at <name>.fd.robertpuffe.com.
-Status dashboard: https://wake.fd.robertpuffe.com/ .
+todo (+todo-dev), tasks (+tasks-dev), board (+board-dev), golf (+golf-dev —
+Robert's 3-hole mini golf, storage: s3), studio-dev (no prod yet), ping
+(Stage-2 exit test, still on v0.1.2, never woken). All at
+<name>.fd.robertpuffe.com. Status dashboard: https://wake.fd.robertpuffe.com/ .
+App repos on platform v0.10.1 (Fargate Spot, 2026-09-10): todo, tasks, board,
+golf, studio. golf's clone carries an uncommitted round-played alert
+(app-manifest.yaml + main.go) that predates the upgrade — Robert's call.
 
 ## Fleet scaler (bootstrap/scaler.tf + lambda/scaler.py)
 One Lambda `flightdeck-scaler`, invoked 3 ways: EventBridge Scheduler (three
