@@ -1,17 +1,25 @@
-"""flightdeck-scaler: nightly cool-down + explicit ALB wake endpoint.
+"""flightdeck-scaler: idle sleep, nightly cool-down, optional morning
+warm-up, and the explicit ALB wake endpoint.
 
 Two entrypoints share this one function (spec 5b: net-new, flightdeck-
 prefixed, no speculative surface area):
 
 1. Scheduler / direct-invoke events: {"action": ..., "services": [...]}.
-   Drives ECS desired_count for the flightdeck cluster. Used by the nightly
-   EventBridge Scheduler rule (action=stop-all), `make
-   stop`/`make start`/`make stop-all`/`make start-all`, and any other direct
-   invoke. Stop actions only set desired_count to 0.
+   Drives ECS desired_count for the flightdeck cluster. Used by the
+   EventBridge Scheduler rules (action=sleep-idle every few minutes, nightly
+   action=stop-all, optional morning action=start over a scoped service
+   list), `make stop`/`make start`/`make stop-all`/`make start-all`, and any
+   other direct invoke. Stop actions only set desired_count to 0.
+
+   sleep-idle is the wake endpoint's counterpart: a service that has served
+   zero ALB requests for IDLE_SLEEP_MINUTES (and whose newest task is older
+   than that window) is scaled back to 0. Together they make on-demand the
+   default state -- a visitor wakes an app from wake.<child_zone>, uses it,
+   and it goes back to sleep on its own.
 2. ALB target events (identified structurally by requestContext.elb):
    serve only wake.<child_zone>. The public endpoint lists fleet state and
    starts a selected service. It is start-only by construction; stopping is
-   available only through the schedule or authenticated direct invocation.
+   available only through the schedules or authenticated direct invocation.
 
 Direct-visit auto-wake was removed after live testing proved listener-rule
 flipping could deadlock a service behind the warming page. A sleeping app's
@@ -21,6 +29,7 @@ explicit wake page.
 boto3 comes from the Lambda Python 3.13 runtime; zero pip dependencies.
 """
 
+import datetime
 import html
 import json
 import os
@@ -29,11 +38,15 @@ import boto3
 
 CLUSTER = os.environ["CLUSTER"]
 APP_DOMAIN = os.environ["APP_DOMAIN"]
+# 0 disables sleep-idle inside the Lambda too, so a stray direct invoke of
+# the action while the schedule is removed is a no-op rather than a surprise.
+IDLE_SLEEP_MINUTES = int(os.environ.get("IDLE_SLEEP_MINUTES", "0"))
 
 WAKE_HOST = f"wake.{APP_DOMAIN}"
 
 ecs = boto3.client("ecs")
 elbv2 = boto3.client("elbv2")
+cloudwatch = boto3.client("cloudwatch")
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +122,156 @@ def _start_service(name):
 
 
 # ---------------------------------------------------------------------------
+# sleep-idle: scale a running service back to 0 once nobody has used it.
+#
+# "Used" means ALB RequestCount on the service's own target group, which
+# counts real client requests only -- the ALB's health checks are not
+# included, so a healthy-but-unvisited app reads as idle. The wake page's
+# own polling hits wake.<child_zone> (the Lambda's target group), never the
+# app's, so waking an app and then not visiting it still lets it sleep.
+# ---------------------------------------------------------------------------
+
+
+def _target_groups_by_service(names):
+    """{service_name: (tg_arn_suffix, lb_arn_suffix)} for the given services,
+    in the dimension shapes CloudWatch wants. Services whose target group is
+    missing or detached from a load balancer are left out (and skipped)."""
+    found = {}
+    # describe_target_groups accepts at most 20 names per call, and fails the
+    # whole call if any name is unknown -- so resolve one name at a time on
+    # that error path rather than losing the batch.
+    for i in range(0, len(names), 20):
+        chunk = names[i : i + 20]
+        try:
+            tgs = elbv2.describe_target_groups(Names=[f"flightdeck-{n}" for n in chunk])["TargetGroups"]
+        except Exception as e:  # noqa: BLE001 -- one unknown TG must not blank the batch
+            print(json.dumps({"warning": "describe_target_groups batch failed, resolving singly", "error": str(e)}))
+            tgs = []
+            for n in chunk:
+                try:
+                    tgs.extend(elbv2.describe_target_groups(Names=[f"flightdeck-{n}"])["TargetGroups"])
+                except Exception as single:  # noqa: BLE001
+                    print(json.dumps({"warning": "no target group for service", "service": n, "error": str(single)}))
+        for tg in tgs:
+            name = tg["TargetGroupName"].removeprefix("flightdeck-")
+            lbs = tg.get("LoadBalancerArns") or []
+            if not lbs:
+                continue
+            # arn:...:targetgroup/<name>/<id> -> targetgroup/<name>/<id>
+            tg_suffix = tg["TargetGroupArn"].split(":")[-1]
+            # arn:...:loadbalancer/app/<name>/<id> -> app/<name>/<id>
+            lb_suffix = lbs[0].split(":loadbalancer/", 1)[-1]
+            found[name] = (tg_suffix, lb_suffix)
+    return found
+
+
+def _request_counts(dimensions_by_service, start, end):
+    """Sum of ALB RequestCount per service over [start, end)."""
+    if not dimensions_by_service:
+        return {}
+    period = max(60, int((end - start).total_seconds()) // 60 * 60)
+    ordered = sorted(dimensions_by_service)
+    queries = [
+        {
+            "Id": f"q{i}",
+            "MetricStat": {
+                "Metric": {
+                    "Namespace": "AWS/ApplicationELB",
+                    "MetricName": "RequestCount",
+                    "Dimensions": [
+                        {"Name": "TargetGroup", "Value": dimensions_by_service[name][0]},
+                        {"Name": "LoadBalancer", "Value": dimensions_by_service[name][1]},
+                    ],
+                },
+                "Period": period,
+                "Stat": "Sum",
+            },
+        }
+        for i, name in enumerate(ordered)
+    ]
+    counts = {name: 0.0 for name in ordered}
+    resp = cloudwatch.get_metric_data(MetricDataQueries=queries, StartTime=start, EndTime=end)
+    for result in resp.get("MetricDataResults", []):
+        name = ordered[int(result["Id"][1:])]
+        counts[name] = sum(result.get("Values") or [])
+    return counts
+
+
+def _newest_task_created_at(name):
+    """createdAt of the service's newest task, or None if it has none."""
+    arns = ecs.list_tasks(cluster=CLUSTER, serviceName=name).get("taskArns") or []
+    if not arns:
+        return None
+    tasks = ecs.describe_tasks(cluster=CLUSTER, tasks=arns[:100]).get("tasks") or []
+    stamps = [t["createdAt"] for t in tasks if t.get("createdAt")]
+    return max(stamps) if stamps else None
+
+
+def _handle_sleep_idle(now=None):
+    """Scale to 0 every service that is desired>=1, has had a task running
+    for at least IDLE_SLEEP_MINUTES, and served zero requests in that window.
+
+    Per-service outcomes: "ok" (stopped), "active" (requests seen),
+    "warm" (newest task younger than the window -- just woken or deployed),
+    "no-tasks" (desired>=1 but nothing running: a failing deploy is the
+    circuit breaker's problem, not ours), "no-target-group", or an error.
+    """
+    if IDLE_SLEEP_MINUTES <= 0:
+        print(json.dumps({"warning": "sleep-idle invoked while disabled (IDLE_SLEEP_MINUTES=0)"}))
+        return {"status": "ignored", "reason": "sleep-idle disabled"}
+
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    window_start = now - datetime.timedelta(minutes=IDLE_SLEEP_MINUTES)
+
+    # The fleet-wide lookups run before the per-service loop; if one of them
+    # fails wholesale (throttling, a transient error) nothing is stopped and
+    # the next sweep retries -- but log it as an action_result so the
+    # existing error metric filter sees it instead of a bare traceback.
+    try:
+        services = _list_cluster_services()
+        candidates = sorted(name for name, info in services.items() if info["desired"] > 0)
+        dims = _target_groups_by_service(candidates)
+        counts = _request_counts(dims, window_start, now)
+    except Exception as e:  # noqa: BLE001 -- degrade to "no changes", never a silent crash
+        response = {"status": "error", "action": "sleep-idle", "message": f"fleet lookup failed: {e}"}
+        print(json.dumps({"event_type": "action_result", **response}))
+        return response
+
+    results = {}
+
+    for name in candidates:
+        try:
+            if name not in dims:
+                results[name] = "no-target-group"
+                continue
+            if counts.get(name, 0) > 0:
+                results[name] = "active"
+                continue
+            newest = _newest_task_created_at(name)
+            if newest is None:
+                results[name] = "no-tasks"
+                continue
+            if newest > window_start:
+                results[name] = "warm"
+                continue
+            results[name] = _stop_service(name)
+        except Exception as e:  # noqa: BLE001 -- one service must not abort the sweep
+            print(json.dumps({"error": "sleep-idle check failed", "service": name, "message": str(e)}))
+            results[name] = f"error: {e}"
+
+    status = "ok" if not any(r.startswith("error") for r in results.values()) else "error"
+    response = {
+        "status": status,
+        "action": "sleep-idle",
+        "idle_minutes": IDLE_SLEEP_MINUTES,
+        "results": results,
+        "requests": {name: counts.get(name, 0) for name in candidates},
+    }
+    print(json.dumps({"event_type": "action_result", **response}))
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Scheduler / direct-invoke events: {"action": ..., "services": [...]}
 # ---------------------------------------------------------------------------
 
@@ -117,6 +280,9 @@ def _handle_action_event(event):
     action = event.get("action")
     services = event.get("services")
     print(json.dumps({"event_type": "action", "action": action, "services": services}))
+
+    if action == "sleep-idle":
+        return _handle_sleep_idle()
 
     if action in ("stop-all", "start-all"):
         cluster_services = _list_cluster_services()
@@ -281,6 +447,12 @@ def _index_response():
         f'{state_counts["asleep"]} asleep &middot; '
         f"{total_desired} desired / {total_running} running task(s)"
     )
+    idle_note = (
+        f"<p>Apps go back to sleep on their own after {IDLE_SLEEP_MINUTES} minutes "
+        f"without requests, so wake what you want to look at and it'll tidy itself up.</p>"
+        if IDLE_SLEEP_MINUTES > 0
+        else ""
+    )
 
     body = f"""
 <h1>flightdeck services</h1>
@@ -288,6 +460,7 @@ def _index_response():
 starts it and waits until it's ready. Visiting a stopped app directly at
 its own <code>&lt;svc&gt;.{esc_domain}</code> URL currently returns a 503 --
 auto-wake on direct visit is temporarily disabled.</p>
+{idle_note}
 <p class="summary">{summary}</p>
 <table>
 <tr><th>service</th><th>state</th><th>desired</th><th>running</th><th></th></tr>

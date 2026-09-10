@@ -11,6 +11,18 @@ resource "aws_ecs_cluster" "this" {
   }
 }
 
+# Attach both Fargate capacity providers to the cluster so the fargate-service
+# module can place tasks on FARGATE_SPOT (its default from v0.10.0): ~70% off
+# on-demand Fargate for workloads that tolerate a two-minute interruption
+# notice, which every flightdeck service does -- desired_count=1 behind an
+# ALB, ECS replaces an interrupted task on its own. No default strategy on
+# the cluster: each service declares its own so the choice is visible in the
+# module, not inherited invisibly.
+resource "aws_ecs_cluster_capacity_providers" "this" {
+  cluster_name       = aws_ecs_cluster.this.name
+  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
+}
+
 resource "aws_ecr_repository" "app" {
   for_each = toset(var.apps)
 

@@ -317,7 +317,10 @@ moment of failure instead of memorized upfront:
 
 - Time-to-first-deploy for a new app: < 15 min including agent codegen
 - Pipeline config required per app: 0 lines beyond the thin caller
-- Monthly cost while idle: < $30 (destroy when not demoing)
+- Monthly cost while idle: < $30 (destroy when not demoing). Measured
+  2026-09: the always-on floor alone is ~$35 since per-address IPv4
+  pricing; idle sleep (§10) keeps compute near zero on top of that, and
+  shrinking the floor is a §11 item.
 - Agent failure log: > 5 documented failures with fixes (proof of hardening)
 - Reader test: someone new to the project gets the point in < 5 min from the
   README alone, without cloning anything (§3a; restated as Stage 5 exit)
@@ -438,6 +441,40 @@ decision):**
 - Full scale-from-zero (auto-wake when a sleeping app's own URL is hit,
   via listener-rule flipping) remains open on the tracker — the wake
   endpoint is the deliberate 80% version.
+**Decided (2026-08-12 — morning warm-up, from a build learning):** the
+nightly cool-down was one-way, so the fleet stayed at desired=0 until someone
+deployed or used the wake endpoint. A second Scheduler rule starts a scoped
+list of services (var.morning_warmup_services, default
+board/golf/golf-dev/tasks/todo) at 07:00 America/Chicago. Scoped rather than
+start-all so the warm window costs five tasks, not the cluster — membership is
+a per-service call, not a prod-only rule. This is
+availability-by-schedule, explicitly NOT a step toward auto-wake (#35) — the
+listener-rule problem there is untouched.
+**Decided (2026-09-10 — idle sleep + Fargate Spot, from a cost review):**
+Cost Explorer showed the warm window was paying for ~1 task-vCPU around the
+clock whether or not anyone visited, and that the always-on floor (ALB, its
+two public IPv4 addresses, fck-nat, DNS) is ~$35/mo on its own — already
+above the §9 idle target, which predates per-address IPv4 pricing.
+- On-demand becomes the default state. A third Scheduler rule
+  (`rate(10 minutes)`, action=sleep-idle) scales to 0 any service whose
+  target group served zero ALB requests for var.idle_sleep_minutes
+  (default 30) and whose newest task is older than that window. The wake
+  endpoint is the front door; sleep-idle is the back door. Health checks
+  don't count as requests, and the wake page polls its own host, so
+  "woken but never visited" sleeps too.
+- var.morning_warmup_services defaults to []. The schedule stays available
+  for a service whose fast first visit is worth its whole warm window.
+- The fargate-service module places tasks on FARGATE_SPOT by default
+  (bootstrap attaches both capacity providers; a module variable keeps
+  on-demand as the escape hatch, not a manifest field — no app has needed
+  it). Interruption = an unplanned restart of a desired_count=1 service,
+  which ECS handles. ECS cannot move a service from launch_type to a
+  capacity provider strategy in place, so each app's first deploy on
+  v0.10.0 replaces its service (~1 min downtime).
+- Budget alarm raised to $45/mo so it flags compute drift above the floor
+  instead of firing permanently. Reducing the floor itself (the ALB and
+  its IPv4 addresses are ~$24 of it) is roadmap (§11), not v1.
+
 - Tracking = GitHub Issues + one Milestone per Stage on rpuffe/flightdeck.
 - Stage 3 demo app = agent's choice of language (the language-agnosticism IS
   the thesis).
@@ -498,7 +535,14 @@ writeup exists. Roughly ordered by value-per-effort, not chronology.
   maybe traces. The day-2 story v1 explicitly skips.
 - **Drift detection** — scheduled `terraform plan` in CI, alert on drift.
 - **Per-app cost visibility** — tag-based cost allocation surfaced in the README or
-  a tiny report. Pairs with the HIPAA/governance narrative.
+  a tiny report. Pairs with the HIPAA/governance narrative. Prerequisite: activate
+  `project` as a cost-allocation tag in Billing (account setting, not a resource).
+- **Shrink the always-on floor** — the shared ALB plus its two public IPv4
+  addresses is ~$24/mo of a ~$35/mo floor. Candidates: an IPv6-only
+  (dualstack-without-public-IPv4) ALB behind CloudFront, or replacing the ALB
+  with an HTTP API + VPC link; dropping fck-nat for public subnets with
+  per-task public IPs is the small one (~$7/mo). Each is an edge/network
+  redesign, so v2 not v1.
 - **Deploy strategies** — blue/green or canary via CodeDeploy on ECS.
 - **Service catalog / portal** — only if the platform grows real users; evaluate
   Backstage integration vs. staying deliberately minimal. Write the comparison

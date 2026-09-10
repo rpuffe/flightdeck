@@ -40,11 +40,11 @@ default, IAM user `agent-infra-tool` (static creds).
   `.github/workflows/deploy.yml` + `promote.yml`, template-app `ci.yml` refs +
   `main.tf ?ref=`, and write the tag into `template-app/.flightdeck-version`.
 
-## Architecture (current, platform tag v0.9.1)
+## Architecture (current, platform tag v0.10.0)
 - `bootstrap/` — account-level stack (S3 state backend w/ native lockfile; GitHub
   OIDC provider + `flightdeck-deploy` role; VPC + fck-nat t4g.nano; ECR
   repo-per-app; DNS child zone fd.robertpuffe.com + wildcard ACM; shared ALB w/
-  HTTPS + default 404; budget alarm $30/mo; `scaler.tf` + `lambda/scaler.py`).
+  HTTPS + default 404; budget alarm $45/mo; `scaler.tf` + `lambda/scaler.py`).
 - `modules/fargate-service/` — the flagship module: one Fargate service behind
   the shared ALB, host-based listener rule, target group, logs, 2 alarms,
   permissionless task role (unless storage). `environment` var (dev/prod);
@@ -75,16 +75,21 @@ default, IAM user `agent-infra-tool` (static creds).
   (route through the scaler Lambda; deliberate desired-count drift, next deploy
   restores).
 
-## Live apps (state varies — nightly cooldown at 23:30 America/Chicago)
+## Live apps (on demand: wake from wake.fd, asleep again after 30 idle min)
 todo, tasks, board (+board-dev), golf (golf-dev — Robert's 3-hole mini golf,
 storage: s3 available, not yet wired for high scores), ping (Stage-2 exit test).
 hello was destroyed as the teardown proof. All at <name>.fd.robertpuffe.com.
 Status dashboard: https://wake.fd.robertpuffe.com/ .
 
 ## Fleet scaler (bootstrap/scaler.tf + lambda/scaler.py)
-One Lambda `flightdeck-scaler`, invoked 3 ways: EventBridge Scheduler (nightly
-stop-all 23:30 Central), ALB wake endpoint wake.fd (status dashboard + ?svc=
-start-on-demand, START-ONLY), and direct invoke from make stop/start (operator
+One Lambda `flightdeck-scaler`, invoked 3 ways: EventBridge Scheduler (three
+rules — sleep-idle every 10 min, which stops any service with zero ALB
+RequestCount over var.idle_sleep_minutes (default 30) whose newest task is
+older than that window; nightly stop-all 23:30 Central as the backstop; and
+an optional morning warm-up 07:00 Central over var.morning_warmup_services,
+default [] = no schedule), ALB wake endpoint
+wake.fd (status dashboard + ?svc= start-on-demand, START-ONLY), and direct
+invoke from make stop/start (operator
 granted via a RESOURCE-BASED policy ON the Lambda — aws_lambda_permission
 `operator_invoke`, principal = caller ARN — NOT a policy on the pre-existing
 user; §5b-clean). Account Lambda concurrency quota ~10 blocks reserved-
@@ -97,6 +102,14 @@ dormant in the scaler. A directly visited sleeping app returns the ALB's normal
 start`. Issue #35 remains a future design decision, not a partially active
 feature. Any redesign must be live-tested stop→visit→recover end to end because
 ALB health checks run only for attached target groups.
+
+The 07:00 warm-up schedule (2026-08-12) reduces how often anyone meets that
+503 — the four listed services are already healthy during the day — but does
+not implement #35. Outside the warm window, and for any service not on the
+list, a direct visit still 503s with no auto-recovery. The structural blocker
+is unchanged: ALB has no health-based failover between target groups (first
+matching rule wins regardless of target health), so auto-wake still requires
+mutating the listener rule, which is exactly what deadlocked before.
 
 ## Open issues
 - #35 optional direct-visit auto-wake redesign (see above)
@@ -114,6 +127,14 @@ Memory: ~/.claude/.../memory/flightdeck-project-decisions.md has the full
 decided-log.
 
 ## Cost posture
-Idle floor ~$19/mo (ALB + fck-nat). Each running task ~$9/mo; dev+prod doubles.
-Budget alarm $30/mo. Nightly cooldown + make stop-all keep it down; deploys and
-wake re-warm.
+Measured 2026-09-10 (Cost Explorer): always-on floor ~$35/mo — ALB $16.4,
+three public IPv4 addresses (two on the ALB, one on fck-nat) $11, fck-nat
+t4g.nano + EBS $3.7, Route 53 + CloudWatch + S3 ~$4. Compute on top: an
+on-demand 256/512 task is ~$1.25/day, ~70% less on FARGATE_SPOT (module
+default from v0.10.0). Jul $39 → Aug $64 → Sep on pace for ~$70 with five
+services warmed 07:00–23:30; idle sleep (default 30 min) takes compute back
+to actual visit time, expected bill high $30s. Budget alarm $45/mo. Wake,
+`make start`, and deploys re-warm; sleep-idle, the nightly stop-all, and
+`make stop` re-cool. `project` is NOT yet an active cost-allocation tag in
+Billing, so Cost Explorer can't group by it (one console/CLI toggle; needed
+for the per-app cost report in §11).
