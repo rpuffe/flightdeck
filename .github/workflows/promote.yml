@@ -48,12 +48,26 @@ jobs:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}
 
+      # crane reads the docker credential store this login writes, and its
+      # `copy` moves manifest AND layers between repositories while keeping
+      # the digest byte-identical. The previous batch-get-image/put-image
+      # pair copied only the manifest, which ECR accepts solely when every
+      # layer already exists in the prod repo — true by accident while the
+      # base image never changed, and a LayersNotFoundException the first
+      # time a dev build carried a new base layer (golf, 2026-09-10).
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
+
       - name: Promote and verify image
         id: resolve
         run: |
           source_repo="flightdeck/${{ steps.manifest.outputs.name }}-dev"
           prod_repo="flightdeck/${{ steps.manifest.outputs.name }}"
           tag="${{ github.sha }}"
+          registry=$(aws ecr describe-repositories --repository-names "$prod_repo" --query 'repositories[0].repositoryUri' --output text | cut -d/ -f1)
 
           if ! aws ecr describe-images --repository-name "$source_repo" --image-ids imageTag="$tag" >/dev/null 2>&1; then
             echo "::error::no image for commit ${{ github.sha }} — promotion deploys the image main already built and validated in dev; tag a commit that has been pushed to main"
@@ -63,23 +77,9 @@ jobs:
           source_digest=$(aws ecr describe-images --repository-name "$source_repo" --image-ids imageTag="$tag" --query 'imageDetails[0].imageDigest' --output text)
 
           if ! aws ecr describe-images --repository-name "$prod_repo" --image-ids imageTag="$tag" >/dev/null 2>&1; then
-            # The build workflow emits one platform image, not a multi-arch index.
-            manifest=$(aws ecr batch-get-image \
-              --repository-name "$source_repo" \
-              --image-ids imageTag="$tag" \
-              --accepted-media-types \
-                application/vnd.docker.distribution.manifest.v2+json \
-                application/vnd.oci.image.manifest.v1+json \
-              --query 'images[0].imageManifest' \
-              --output text)
-            if [ -z "$manifest" ] || [ "$manifest" = "None" ]; then
-              echo "::error::could not read the image manifest for $source_repo:$tag"
-              exit 1
-            fi
-            aws ecr put-image \
-              --repository-name "$prod_repo" \
-              --image-tag "$tag" \
-              --image-manifest "$manifest" >/dev/null
+            # Registry-side copy: no rebuild, no re-scan, same digest. Layers
+            # are mounted or uploaded as needed; the manifest is written last.
+            crane copy "$registry/$source_repo:$tag" "$registry/$prod_repo:$tag"
           fi
 
           prod_digest=$(aws ecr describe-images --repository-name "$prod_repo" --image-ids imageTag="$tag" --query 'imageDetails[0].imageDigest' --output text)
@@ -96,7 +96,7 @@ jobs:
     needs: resolve
     # Fully-qualified ref on purpose — nested ./ refs resolve against the
     # CALLING repo and break (see deploy.yml's comment).
-    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.10.0
+    uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.10.1
     with:
       image: ${{ needs.resolve.outputs.image }}
       environment: "prod"
