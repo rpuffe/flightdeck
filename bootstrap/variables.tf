@@ -158,9 +158,9 @@ variable "mail_managed_zones" {
 }
 
 variable "budget_limit_usd" {
-  description = "Monthly budget alarm threshold in USD. The always-on floor (ALB, its two public IPv4 addresses, fck-nat, DNS) is ~$35/mo on its own, so the alarm sits above that to flag compute drift rather than fire permanently."
+  description = "Monthly budget alarm threshold in USD. The always-on floor (ALB, its two public IPv4 addresses, DNS, alarms) is ~$27/mo on its own, so the alarm sits above that to flag compute drift rather than fire permanently."
   type        = string
-  default     = "45"
+  default     = "35"
 }
 
 variable "alert_email" {

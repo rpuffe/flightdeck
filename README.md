@@ -313,7 +313,7 @@ Idle, with nothing actively deployed beyond the shared platform pieces:
   `make stop-all` / `make start-all` do the same across the whole cluster.
   Terraform state still says `desired_count=1`, so a service's next deploy
   silently restores it: documented drift, not a bug.
-- A budget alarm fires at $45/mo (`bootstrap/platform.tf`), set above the
+- A budget alarm fires at $35/mo (`bootstrap/platform.tf`), set above the
   floor so it flags compute drift rather than firing permanently.
 - `make destroy-bootstrap` (and the per-app destroy targets) tear the stack
   down cleanly when not demoing — verified, not just claimed: a
