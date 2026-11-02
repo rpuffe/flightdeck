@@ -80,11 +80,10 @@ bucket:
 ```mermaid
 flowchart TB
     R["Route53 child zone<br/>fd.robertpuffe.com<br/>+ wildcard ACM cert"] --> ALB["Shared ALB<br/>host-based routing"]
-    ALB -->|Host: golf.fd...| S3P["Fargate service: golf prod<br/>private subnet"]
-    ALB -->|Host: golf-dev.fd...| S3D["Fargate service: golf-dev<br/>private subnet"]
-    ALB -->|Host: &lt;name&gt;.fd...| S4["Fargate service: &lt;name&gt;<br/>private subnet"]
-    S3P & S3D & S4 -->|egress| NAT["fck-nat (t4g.nano)"]
-    NAT --> INET["ECR / CloudWatch Logs / internet"]
+    ALB -->|Host: golf.fd...| S3P["Fargate service: golf prod<br/>public subnet, ALB-only ingress"]
+    ALB -->|Host: golf-dev.fd...| S3D["Fargate service: golf-dev<br/>public subnet, ALB-only ingress"]
+    ALB -->|Host: &lt;name&gt;.fd...| S4["Fargate service: &lt;name&gt;<br/>public subnet, ALB-only ingress"]
+    S3P & S3D & S4 -->|egress, per-task public IP| INET["ECR / CloudWatch Logs / internet"]
     S4 -. "manifest: storage: s3<br/>(optional, per environment)" .-> BUCKET["Private encrypted S3 bucket<br/>task role's only permission"]
     subgraph State["One S3 bucket, per-app + per-env state keys"]
         K2["apps/golf/terraform.tfstate (prod)"]
@@ -202,9 +201,9 @@ hardening.
   the account. Managed secret retrieval belongs to the ECS execution role,
   scoped to the app/environment parameter path; the task role remains unable
   to call SSM.
-- **ALB-only ingress, private subnets** — app services have no public IPs and
-  accept traffic only from the shared ALB's security group; egress runs
-  through fck-nat.
+- **ALB-only ingress** — app services accept traffic only from the shared
+  ALB's security group. Tasks run in public subnets and hold a public IPv4
+  for egress only, which avoids paying for a NAT instance (spec §10).
 - **Prefix + tag conventions, state-scoped destroys** — every resource is
   named `flightdeck-*` and tagged `project=flightdeck`; `make destroy`
   targets flightdeck's own Terraform state only, never a tag-based or
@@ -295,14 +294,14 @@ of which agent is generating the code.
 
 Idle, with nothing actively deployed beyond the shared platform pieces:
 
-- fck-nat (t4g.nano NAT instance): ~$3/mo, vs ~$32+/mo for a managed NAT
-  Gateway. Documented availability tradeoff — a single instance, no HA; if
-  its AZ fails, private-subnet egress is down until it's replaced. Cost over
-  availability, acceptable for a personal platform (spec §5, `bootstrap/vpc.tf`).
+- No NAT: tasks egress through the internet gateway on a per-task public
+  IPv4 (~$3.65/mo per always-on task, nothing while asleep). This replaced
+  a t4g.nano fck-nat instance that cost ~$7.40/mo with its disk and address
+  (spec §10, 2026-11-01).
 - One shared ALB: ~$16/mo, amortized across every app behind it — plus
-  ~$11/mo for the three public IPv4 addresses the ALB and fck-nat hold.
-  Together with DNS and alarms that is a ~$35/mo floor that no amount of
-  scaling to zero removes; shrinking it is roadmap (spec §11).
+  ~$7/mo for its two public IPv4 addresses. Together with DNS and alarms
+  that is a ~$25/mo floor that no amount of scaling to zero removes;
+  shrinking it further is roadmap (spec §11).
 - Fargate: ~$9/mo per always-on 256 CPU / 512 MB on-demand task; services
   run on Fargate Spot by default (v0.10.0), about 70% less. Each environment
   is its own task, so an app running both dev and prod pays twice.

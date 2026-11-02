@@ -173,10 +173,10 @@ resource "aws_vpc_security_group_ingress_rule" "service" {
 }
 
 # Documented exception (the app-repo Trivy gate scans this module remotely):
-# tasks must reach ECR, CloudWatch Logs, and app dependencies via NAT, and
-# AWS-0104 fires on the 0.0.0.0/0 CIDR regardless of port scoping.
-# Compensating controls: private subnets, ALB-only ingress, permissionless
-# task role. Egress lockdown (VPC endpoints + explicit CIDRs) is roadmap work.
+# tasks must reach ECR, CloudWatch Logs, and app dependencies through the
+# internet gateway, and AWS-0104 fires on the 0.0.0.0/0 CIDR regardless of
+# port scoping. Compensating controls: ALB-only ingress, permissionless task
+# role. Egress lockdown (VPC endpoints + explicit CIDRs) is roadmap work.
 #trivy:ignore:aws-0104
 resource "aws_vpc_security_group_egress_rule" "service" {
   security_group_id = aws_security_group.service.id
@@ -271,10 +271,15 @@ resource "aws_ecs_service" "app" {
   # use the ECS create default. Their 200/100 deploy works with either value.
   availability_zone_rebalancing = var.storage != "" ? "DISABLED" : null
 
+  # Public subnets with a per-task public IPv4 instead of private subnets
+  # behind a NAT instance (spec §10, 2026-11-01): egress goes straight out the
+  # internet gateway, and a sleeping service holds no address at all. The
+  # public IP is not an ingress path — the security group above admits only
+  # the shared ALB, so nothing on the internet can open a connection to a task.
   network_configuration {
-    subnets          = var.private_subnet_ids
+    subnets          = var.subnet_ids
     security_groups  = [aws_security_group.service.id]
-    assign_public_ip = false
+    assign_public_ip = true
   }
 
   load_balancer {
