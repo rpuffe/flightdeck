@@ -69,7 +69,7 @@ module "app" {
 
   cluster_arn           = data.terraform_remote_state.bootstrap.outputs.cluster_arn
   vpc_id                = data.terraform_remote_state.bootstrap.outputs.vpc_id
-  private_subnet_ids    = data.terraform_remote_state.bootstrap.outputs.private_subnet_ids
+  subnet_ids            = data.terraform_remote_state.bootstrap.outputs.public_subnet_ids
   alb_security_group_id = data.terraform_remote_state.bootstrap.outputs.alb_security_group_id
   https_listener_arn    = data.terraform_remote_state.bootstrap.outputs.https_listener_arn
   child_zone_name       = data.terraform_remote_state.bootstrap.outputs.child_zone_name

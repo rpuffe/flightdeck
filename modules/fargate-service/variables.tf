@@ -209,8 +209,8 @@ variable "vpc_id" {
   type        = string
 }
 
-variable "private_subnet_ids" {
-  description = "IDs of the private subnets the service's tasks run in."
+variable "subnet_ids" {
+  description = "IDs of the public subnets the service's tasks run in. Tasks get a public IPv4 for egress; ingress stays ALB-only via the security group."
   type        = list(string)
 }
 

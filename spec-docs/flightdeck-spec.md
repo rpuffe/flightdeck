@@ -83,7 +83,7 @@ repo: flightdeck (github.com/rpuffe/flightdeck, public)
 │   ├── state backend (S3, native lockfile — TF >= 1.10)
 │   ├── GitHub OIDC provider + per-app deploy roles
 │   ├── ECR dev/prod repos per app via for_each
-│   ├── VPC + networking (official module; fck-nat for cost)
+│   ├── VPC + networking (official module; public-subnet egress, no NAT)
 │   ├── DNS: child hosted zone fd.robertpuffe.com, delegated from the
 │   │   existing robertpuffe.com zone (parent zone is DATA SOURCE ONLY;
 │   │   the single NS delegation record is the only write to it)
@@ -327,7 +327,7 @@ moment of failure instead of memorized upfront:
 
 ## 10. Risks / open decisions
 
-**Decided (2026-07-10):** NAT = fck-nat (cost-conscious, documented tradeoff).
+**Decided (2026-07-10):** NAT = fck-nat (cost-conscious, documented tradeoff; superseded 2026-11-01 — no NAT, see below).
 ECR began repo-per-app via `for_each`; the next hardening release splits dev
 and prod repositories per app so dev retention can never delete a deployed
 production image. The original repository name remains prod for migration
@@ -474,6 +474,27 @@ above the §9 idle target, which predates per-address IPv4 pricing.
 - Budget alarm raised to $45/mo so it flags compute drift above the floor
   instead of firing permanently. Reducing the floor itself (the ALB and
   its IPv4 addresses are ~$24 of it) is roadmap (§11), not v1.
+**Decided (2026-11-01 — drop fck-nat, from a second cost review):**
+October's bill was $37 with under $1 of it compute: idle sleep works, and
+what is left is the floor. fck-nat plus its EBS volume and public IPv4 was
+~$7.40/mo of it, buying egress for services that are asleep almost all the
+time.
+- App tasks run in the public subnets with `assign_public_ip = true` and
+  egress through the internet gateway. A public IPv4 is billed only while a
+  task runs, so a sleeping fleet holds no addresses beyond the ALB's two.
+- Ingress is unchanged: the service security group admits only the shared
+  ALB, so a task's public IP is not reachable. The trade is defense in
+  depth — a misconfigured security group would now expose a task directly
+  rather than sit behind NAT. Accepted for a personal platform; noted in
+  the threat model.
+- Rollout is two-phase because removing NAT before an app moves would cut
+  its egress (no image pulls): the module change ships in a release, every
+  registered app upgrades and redeploys both environments, then bootstrap
+  drops fck-nat. The private subnets stay (free) so a not-yet-upgraded app
+  fails on egress, not on a missing subnet output.
+- The demo apps `todo`, `tasks`, `board`, and `ping` were torn down against
+  their own state keys and dropped from the registry; their recorded runs
+  (§9) stand. Budget alarm lowered to $35/mo, still above the ~$27 floor.
 
 - Tracking = GitHub Issues + one Milestone per Stage on rpuffe/flightdeck.
 - Stage 3 demo app = agent's choice of language (the language-agnosticism IS
@@ -538,11 +559,11 @@ writeup exists. Roughly ordered by value-per-effort, not chronology.
   a tiny report. Pairs with the HIPAA/governance narrative. Prerequisite: activate
   `project` as a cost-allocation tag in Billing (account setting, not a resource).
 - **Shrink the always-on floor** — the shared ALB plus its two public IPv4
-  addresses is ~$24/mo of a ~$35/mo floor. Candidates: an IPv6-only
+  addresses is ~$24/mo of a ~$27/mo floor. Candidates: an IPv6-only
   (dualstack-without-public-IPv4) ALB behind CloudFront, or replacing the ALB
-  with an HTTP API + VPC link; dropping fck-nat for public subnets with
-  per-task public IPs is the small one (~$7/mo). Each is an edge/network
-  redesign, so v2 not v1.
+  with an HTTP API + VPC link. Each is an edge/network redesign, so v2 not
+  v1. (Dropping fck-nat for public subnets with per-task public IPs, the
+  small one, shipped — see §10, 2026-11-01.)
 - **Deploy strategies** — blue/green or canary via CodeDeploy on ECS.
 - **Service catalog / portal** — only if the platform grows real users; evaluate
   Backstage integration vs. staying deliberately minimal. Write the comparison
