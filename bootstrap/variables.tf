@@ -36,7 +36,7 @@ variable "github_owner_id" {
 variable "apps" {
   description = "THE app registry: adding a name here creates per-app IAM and dev/prod ECR resources when bootstrap is re-applied. Everything else is app-repo-side."
   type        = list(string)
-  default     = ["ping", "todo", "tasks", "board", "golf", "studio"]
+  default     = ["golf", "studio"]
 }
 
 variable "idle_sleep_minutes" {
@@ -80,10 +80,6 @@ variable "github_repository_ids" {
   description = "Immutable GitHub database IDs keyed by registered app name; required before bootstrap can create that app's deploy role"
   type        = map(string)
   default = {
-    ping   = "1296998462"
-    todo   = "1297061622"
-    tasks  = "1297073678"
-    board  = "1297095053"
     golf   = "1297810535"
     studio = "1304276421"
   }

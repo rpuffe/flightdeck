@@ -5,11 +5,11 @@
 flightdeck is a production-minded golden path from a plain-language app spec to
 an AWS deployment: Terraform modules, reusable GitHub Actions, and an
 `app-manifest.yaml` contract that a coding agent can satisfy without ever
-touching AWS, Terraform, or DNS. Three apps built this way are live right now —
-[todo](https://todo.fd.robertpuffe.com), [tasks](https://tasks.fd.robertpuffe.com),
-and [board](https://board.fd.robertpuffe.com) — each taken from spec to a
-verified URL end-to-end by a cold coding agent given nothing but the spec and
-the contract. The best run, `tasks`, went spec-to-URL in **6m38s with zero CI
+touching AWS, Terraform, or DNS. Three apps — `todo`, `tasks`, and `board` —
+were each taken from spec to a verified URL end-to-end by a cold coding agent
+given nothing but the spec and the contract, then torn down once their runs
+were recorded; [golf](https://golf.fd.robertpuffe.com) is the app that stays
+deployed, in both dev and prod. The best run, `tasks`, went spec-to-URL in **6m38s with zero CI
 failures**; the most recent run, `board` — a frontend-plus-API shape the
 platform had never built before — matched that with **zero failures anywhere**
 (build, scan, or local preflight) in 8m19s (§9 of the
@@ -80,18 +80,15 @@ bucket:
 ```mermaid
 flowchart TB
     R["Route53 child zone<br/>fd.robertpuffe.com<br/>+ wildcard ACM cert"] --> ALB["Shared ALB<br/>host-based routing"]
-    ALB -->|Host: todo.fd...| S1["Fargate service: todo<br/>private subnet"]
-    ALB -->|Host: tasks.fd...| S2["Fargate service: tasks<br/>private subnet"]
-    ALB -->|Host: board.fd...| S3P["Fargate service: board prod<br/>private subnet"]
-    ALB -->|Host: board-dev.fd...| S3D["Fargate service: board-dev<br/>private subnet"]
+    ALB -->|Host: golf.fd...| S3P["Fargate service: golf prod<br/>private subnet"]
+    ALB -->|Host: golf-dev.fd...| S3D["Fargate service: golf-dev<br/>private subnet"]
     ALB -->|Host: &lt;name&gt;.fd...| S4["Fargate service: &lt;name&gt;<br/>private subnet"]
-    S1 & S2 & S3P & S3D & S4 -->|egress| NAT["fck-nat (t4g.nano)"]
+    S3P & S3D & S4 -->|egress| NAT["fck-nat (t4g.nano)"]
     NAT --> INET["ECR / CloudWatch Logs / internet"]
     S4 -. "manifest: storage: s3<br/>(optional, per environment)" .-> BUCKET["Private encrypted S3 bucket<br/>task role's only permission"]
     subgraph State["One S3 bucket, per-app + per-env state keys"]
-        K1["apps/todo/terraform.tfstate"]
-        K2["apps/board/terraform.tfstate (prod)"]
-        K3["apps/board/dev/terraform.tfstate"]
+        K2["apps/golf/terraform.tfstate (prod)"]
+        K3["apps/golf/dev/terraform.tfstate"]
         K4["apps/&lt;name&gt;/terraform.tfstate"]
     end
 ```
