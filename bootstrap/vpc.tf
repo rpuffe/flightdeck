@@ -12,34 +12,11 @@ module "vpc" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  # NAT is provided by the fck-nat instance below, not managed NAT gateways.
+  # No NAT (spec §10, 2026-11-01): app tasks run in the public subnets with
+  # a per-task public IPv4 and egress through the internet gateway. The
+  # private subnets are kept, unused and free, so an app still pinned to a
+  # pre-v0.11 module fails on egress rather than on a missing output.
   enable_nat_gateway = false
-}
-
-# Deliberate tradeoff (spec §5): a single fck-nat instance, no HA. A t4g.nano
-# NAT instance costs ~$3/mo vs ~$32/mo + data processing for a managed NAT
-# gateway; if its AZ fails, private-subnet egress is down until it's replaced.
-# Cost over availability — acceptable for a personal platform.
-# fck-nat must reach arbitrary internet destinations to provide NAT egress.
-# Its launch template explicitly sets encrypted = true; AWS-0131 is a scanner
-# false positive on the instance that consumes that launch template.
-#trivy:ignore:AVD-AWS-0104 trivy:ignore:AVD-AWS-0131
-module "fck_nat" {
-  source  = "RaJiska/fck-nat/aws"
-  version = "~> 1.4" # >= 1.4 requires AWS provider >= 6.0
-
-  name      = "${local.name_prefix}-fck-nat"
-  vpc_id    = module.vpc.vpc_id
-  subnet_id = module.vpc.public_subnets[0]
-
-  instance_type = "t4g.nano"
-  ha_mode       = false # single instance, no autoscaling group
-
-  # Point every private route table's 0.0.0.0/0 at the NAT instance.
-  update_route_tables = true
-  route_tables_ids = {
-    for idx, rt_id in module.vpc.private_route_table_ids : "private-${idx}" => rt_id
-  }
 }
 
 output "vpc_id" {
@@ -58,6 +35,6 @@ output "public_subnet_ids" {
 }
 
 output "private_subnet_ids" {
-  description = "IDs of the private subnets"
+  description = "IDs of the private subnets (no egress route; unused since app tasks moved to the public subnets)"
   value       = module.vpc.private_subnets
 }

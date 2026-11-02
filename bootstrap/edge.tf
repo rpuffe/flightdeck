@@ -111,7 +111,8 @@ resource "aws_vpc_security_group_egress_rule" "alb_all" {
 }
 
 # Public ingress is the purpose of the shared application load balancer; app
-# tasks remain private and accept ingress only from its security group.
+# tasks hold a public IP for egress only and accept ingress solely from its
+# security group.
 #trivy:ignore:AVD-AWS-0053
 resource "aws_lb" "main" {
   name                       = local.name_prefix
