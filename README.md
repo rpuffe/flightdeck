@@ -300,7 +300,7 @@ Idle, with nothing actively deployed beyond the shared platform pieces:
   (spec §10, 2026-11-01).
 - One shared ALB: ~$16/mo, amortized across every app behind it — plus
   ~$7/mo for its two public IPv4 addresses. Together with DNS and alarms
-  that is a ~$25/mo floor that no amount of scaling to zero removes;
+  that is a ~$27/mo floor that no amount of scaling to zero removes;
   shrinking it further is roadmap (spec §11).
 - Fargate: ~$9/mo per always-on 256 CPU / 512 MB on-demand task; services
   run on Fargate Spot by default (v0.10.0), about 70% less. Each environment

@@ -494,7 +494,7 @@ time.
   fails on egress, not on a missing subnet output.
 - The demo apps `todo`, `tasks`, `board`, and `ping` were torn down against
   their own state keys and dropped from the registry; their recorded runs
-  (§9) stand. Budget alarm lowered to $35/mo, still above the ~$25 floor.
+  (§9) stand. Budget alarm lowered to $35/mo, still above the ~$27 floor.
 
 - Tracking = GitHub Issues + one Milestone per Stage on rpuffe/flightdeck.
 - Stage 3 demo app = agent's choice of language (the language-agnosticism IS
@@ -559,7 +559,7 @@ writeup exists. Roughly ordered by value-per-effort, not chronology.
   a tiny report. Pairs with the HIPAA/governance narrative. Prerequisite: activate
   `project` as a cost-allocation tag in Billing (account setting, not a resource).
 - **Shrink the always-on floor** — the shared ALB plus its two public IPv4
-  addresses is ~$24/mo of a ~$25/mo floor. Candidates: an IPv6-only
+  addresses is ~$24/mo of a ~$27/mo floor. Candidates: an IPv6-only
   (dualstack-without-public-IPv4) ALB behind CloudFront, or replacing the ALB
   with an HTTP API + VPC link. Each is an edge/network redesign, so v2 not
   v1. (Dropping fck-nat for public subnets with per-task public IPs, the
