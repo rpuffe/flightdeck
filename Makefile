@@ -27,7 +27,7 @@ APP_DOMAIN := fd.robertpuffe.com
 .PHONY: fmt validate test plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
-        new-app check-release prepare-release secret-set secret-check secret-rotate secret-delete
+        new-app register-app check-release prepare-release secret-set secret-check secret-rotate secret-delete
 
 # --- Service operations ------------------------------------------------------
 # Scale operations are deliberate drift: terraform state keeps desired_count=1,
@@ -238,15 +238,15 @@ new-app:
 		echo "error: $(NAME) is already in the apps registry ($(BOOTSTRAP)/variables.tf)"; \
 		exit 1; \
 	}
+	@$(MAKE) --no-print-directory register-app NAME=$(NAME)
+	$(TF) -chdir=$(BOOTSTRAP) fmt
+	$(TF) -chdir=$(BOOTSTRAP) init -input=false -backend=false > /dev/null
+	$(TF) -chdir=$(BOOTSTRAP) validate
 	cp -R template-app ../$(NAME)
 	yq -i '.name = "$(NAME)"' ../$(NAME)/app-manifest.yaml
 	git -C ../$(NAME) init -b main
 	git -C ../$(NAME) add -A
 	git -C ../$(NAME) commit -m "flightdeck template"
-	sed -i '' '/default[[:space:]]*=[[:space:]]*\[/ s/\]$$/, "$(NAME)"]/' $(BOOTSTRAP)/variables.tf
-	$(TF) -chdir=$(BOOTSTRAP) fmt
-	$(TF) -chdir=$(BOOTSTRAP) init -input=false -backend=false > /dev/null
-	$(TF) -chdir=$(BOOTSTRAP) validate
 	@echo ""
 	@echo "Scaffolded ../$(NAME) and registered it in $(BOOTSTRAP)/variables.tf."
 	@echo "NEXT STEPS (manual — repo creation and infra applies are deliberate"
@@ -257,3 +257,19 @@ new-app:
 	@echo "  4) make bootstrap   (creates IAM + dev/prod ECR for $(NAME))"
 	@echo "  5) gh variable set FLIGHTDECK_DEPLOY_ROLE_ARN --repo <owner>/$(NAME) --body \"arn:aws:iam::$(ACCOUNT_ID):role/flightdeck-deploy-$(NAME)\""
 	@echo "  6) git -C ../$(NAME) push -u origin main   ->  https://$(NAME)-dev.$(APP_DOMAIN)"
+
+# Appends NAME to var.apps — and ONLY var.apps. The edit is scoped to the
+# `variable "apps"` block: other list variables in the file (several default
+# to []) must never be touched. Handles an empty registry too. Separate target
+# so tests can run it against a scratch copy via REGISTRY=<path>.
+REGISTRY ?= $(BOOTSTRAP)/variables.tf
+register-app:
+	@test -n "$(NAME)" || { echo "usage: make register-app NAME=<name> [REGISTRY=<variables.tf>]"; exit 1; }
+	@sed -i '' \
+		-e '/^variable "apps" {/,/^}/ s/^\([[:space:]]*default[[:space:]]*=[[:space:]]*\[[^]][^]]*\)\]$$/\1, "$(NAME)"]/' \
+		-e '/^variable "apps" {/,/^}/ s/^\([[:space:]]*default[[:space:]]*=[[:space:]]*\)\[\]$$/\1["$(NAME)"]/' \
+		$(REGISTRY)
+	@sed -n '/^variable "apps" {/,/^}/p' $(REGISTRY) | grep -q '"$(NAME)"' || { \
+		echo "error: could not register $(NAME) in var.apps ($(REGISTRY)) — edit it by hand"; \
+		exit 1; \
+	}
