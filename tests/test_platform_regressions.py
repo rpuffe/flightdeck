@@ -299,3 +299,45 @@ class PromotionRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewAppRegistryRegressionTests(unittest.TestCase):
+    """make new-app once rewrote EVERY `default = [...]` list in
+    bootstrap/variables.tf, turning empty lists into `[, "name"]`."""
+
+    def _register(self, text, name="zzapp"):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "variables.tf"
+            path.write_text(text)
+            result = subprocess.run(
+                ["make", "--no-print-directory", "-C", str(ROOT), "register-app",
+                 f"NAME={name}", f"REGISTRY={path}"],
+                capture_output=True, text=True,
+            )
+            return result, path.read_text()
+
+    def test_only_the_apps_list_changes(self):
+        original = (ROOT / "bootstrap" / "variables.tf").read_text()
+        result, updated = self._register(original)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        changed = [
+            (a, b) for a, b in zip(original.splitlines(), updated.splitlines()) if a != b
+        ]
+        self.assertEqual(len(changed), 1, changed)
+        self.assertTrue(changed[0][1].rstrip().endswith(', "zzapp"]'), changed)
+        self.assertNotIn("[,", updated)
+
+    def test_empty_registry_gets_a_valid_list(self):
+        text = (
+            'variable "apps" {\n  type    = list(string)\n  default = []\n}\n\n'
+            'variable "other" {\n  type    = list(string)\n  default = []\n}\n'
+        )
+        result, updated = self._register(text)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('default = ["zzapp"]', updated)
+        self.assertEqual(updated.count("default = []"), 1)  # "other" untouched
+
+    def test_fails_loudly_when_registry_shape_is_unrecognized(self):
+        result, _ = self._register('variable "apps" {\n  default = local.apps\n}\n')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not register", result.stdout + result.stderr)
