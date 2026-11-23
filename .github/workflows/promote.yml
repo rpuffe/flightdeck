@@ -1,8 +1,3 @@
-# Reusable workflow: promote the image main already built to prod. Triggered
-# by an app's ci.yml on v* tags (OIDC trust already covers refs/tags/v* —
-# bootstrap/oidc.tf). Promotion semantics: build once on main, promote that
-# same immutable image to prod — no rebuild, no re-scan, because it already
-# passed both Trivy gates when it went through dev.
 name: promote
 
 on:
@@ -48,13 +43,6 @@ jobs:
           role-to-assume: ${{ inputs.aws-role-arn }}
           aws-region: ${{ inputs.aws-region }}
 
-      # crane reads the docker credential store this login writes, and its
-      # `copy` moves manifest AND layers between repositories while keeping
-      # the digest byte-identical. The previous batch-get-image/put-image
-      # pair copied only the manifest, which ECR accepts solely when every
-      # layer already exists in the prod repo — true by accident while the
-      # base image never changed, and a LayersNotFoundException the first
-      # time a dev build carried a new base layer (golf, 2026-09-10).
       - name: Log in to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -77,8 +65,6 @@ jobs:
           source_digest=$(aws ecr describe-images --repository-name "$source_repo" --image-ids imageTag="$tag" --query 'imageDetails[0].imageDigest' --output text)
 
           if ! aws ecr describe-images --repository-name "$prod_repo" --image-ids imageTag="$tag" >/dev/null 2>&1; then
-            # Registry-side copy: no rebuild, no re-scan, same digest. Layers
-            # are mounted or uploaded as needed; the manifest is written last.
             crane copy "$registry/$source_repo:$tag" "$registry/$prod_repo:$tag"
           fi
 
@@ -94,8 +80,6 @@ jobs:
 
   deploy:
     needs: resolve
-    # Fully-qualified ref on purpose — nested ./ refs resolve against the
-    # CALLING repo and break (see deploy.yml's comment).
     uses: rpuffe/flightdeck/.github/workflows/terraform-plan-apply.yml@v0.11.0
     with:
       image: ${{ needs.resolve.outputs.image }}

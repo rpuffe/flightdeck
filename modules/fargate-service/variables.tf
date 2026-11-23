@@ -1,14 +1,7 @@
-# ---------------------------------------------------------------------------
-# Manifest-shaped variables: these become app-manifest.yaml fields (spec §6).
-# ---------------------------------------------------------------------------
-
 variable "name" {
   description = "App name. DNS-safe, becomes service/log/resource names."
   type        = string
 
-  # "flightdeck-" (11 chars) + name must stay under the 32-char target-group
-  # name limit, and dev stacks append "-dev" (4 more chars), so name itself
-  # is capped at 16 chars to leave headroom for that suffix.
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{0,15}$", var.name))
     error_message = "name must be lowercase alphanumeric/hyphens, start with a letter, and be at most 16 characters long (dev stacks append \"-dev\", so this leaves room under the 32-char target-group name limit)."
@@ -184,20 +177,10 @@ variable "auth" {
   }
 }
 
-# ---------------------------------------------------------------------------
-# Deploy-time variable: deliberately NOT a manifest field (spec instructions).
-# Supplied by CI (or manually) at apply time, since the image tag changes
-# every deploy while the manifest describes the app's shape, not its build.
-# ---------------------------------------------------------------------------
-
 variable "image" {
   description = "Full container image reference (e.g. <account>.dkr.ecr.<region>.amazonaws.com/flightdeck/<name>:<tag>)."
   type        = string
 }
-
-# ---------------------------------------------------------------------------
-# Platform wiring: mirrors bootstrap/edge.tf and bootstrap/platform.tf outputs.
-# ---------------------------------------------------------------------------
 
 variable "cluster_arn" {
   description = "ARN of the shared flightdeck ECS cluster."

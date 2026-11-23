@@ -1,25 +1,9 @@
-# Fleet scaler: idle sleep, nightly cool-down, optional morning warm-up, and
-# an ALB wake endpoint. Net-new resources only (spec 5b). This is the
-# automated counterpart to `make stop`/`make start`: the schedules below drive
-# the same desired-count lever those targets do, and the wake endpoint lets a
-# visitor bring a stopped app back up without shell access.
-
-# ---------------------------------------------------------------------------
-# Lambda package
-# ---------------------------------------------------------------------------
-
 data "archive_file" "scaler" {
   type        = "zip"
   source_dir  = "${path.module}/lambda"
   output_path = "${path.module}/.terraform/archives/scaler.zip"
-  # Local test imports create ignored bytecode beside scaler.py. Excluding it
-  # keeps the deployment package hash independent of who ran tests last.
-  excludes = ["__pycache__"]
+  excludes    = ["__pycache__"]
 }
-
-# ---------------------------------------------------------------------------
-# IAM: Lambda execution role
-# ---------------------------------------------------------------------------
 
 data "aws_iam_policy_document" "scaler_assume" {
   statement {
@@ -45,16 +29,12 @@ data "aws_iam_policy_document" "scaler_permissions" {
       "ecs:DescribeServices",
       "ecs:UpdateService",
     ]
-    # Same two-ARN-shape pattern as the deploy role (oidc.tf): ListServices
-    # is scoped by cluster, DescribeServices/UpdateService by service.
     resources = [
       aws_ecs_cluster.this.arn,
       "arn:aws:ecs:${var.region}:${data.aws_caller_identity.current.account_id}:service/${aws_ecs_cluster.this.name}/*",
     ]
   }
 
-  # sleep-idle's grace rule: a service whose newest task is younger than the
-  # idle window was just woken or deployed and is left alone.
   statement {
     sid       = "EcsTaskAgeRead"
     actions   = ["ecs:ListTasks"]
@@ -65,6 +45,8 @@ data "aws_iam_policy_document" "scaler_permissions" {
       values   = [aws_ecs_cluster.this.arn]
     }
   }
+  # Same two-ARN-shape pattern as the deploy role (oidc.tf): ListServices
+  # is scoped by cluster, DescribeServices/UpdateService by service.
 
   statement {
     sid     = "EcsTaskDescribe"
@@ -74,9 +56,6 @@ data "aws_iam_policy_document" "scaler_permissions" {
     ]
   }
 
-  # The wake dashboard reads target health to distinguish running services
-  # from tasks that are still warming; sleep-idle reads per-target-group
-  # RequestCount to tell "unvisited" from "in use".
   statement {
     sid = "ElbTargetHealthRead"
     actions = [
@@ -84,9 +63,7 @@ data "aws_iam_policy_document" "scaler_permissions" {
       "elasticloadbalancing:DescribeTargetHealth",
       "cloudwatch:GetMetricData",
     ]
-    # None of these actions support resource-level scoping -- AWS requires
-    # "*" for Describe* calls on ELBv2 and for GetMetricData. Read-only, so
-    # this is a visibility grant, not a mutation risk.
+    # None of these actions supports resource-level permissions.
     resources = ["*"]
   }
 
@@ -109,13 +86,8 @@ resource "aws_iam_role_policy" "scaler" {
   policy = data.aws_iam_policy_document.scaler_permissions.json
 }
 
-# ---------------------------------------------------------------------------
-# Lambda function
-# ---------------------------------------------------------------------------
-
-# Explicit log group (matching the fargate-service module's convention) so
-# it's created with a bounded retention instead of Lambda auto-creating one
-# with no expiry the first time the function runs.
+# Explicit so it has a bounded retention. Lambda would otherwise create
+# /aws/lambda/<name> on first invoke with no retention set.
 resource "aws_cloudwatch_log_group" "scaler" {
   name              = "/aws/lambda/${local.name_prefix}-scaler"
   retention_in_days = 30
@@ -140,15 +112,6 @@ resource "aws_lambda_function" "scaler" {
   runtime       = "python3.13"
   timeout       = 30
 
-  # Blast-radius cap deferred: reserving concurrency requires the account's
-  # unreserved pool to stay >= 10, but this account's total concurrency quota
-  # is only ~10 (never raised), so any reservation is rejected. The low
-  # account-wide ceiling itself bounds concurrent invocations for now; a
-  # reserved cap returns once the Lambda concurrency quota is raised. The
-  # endpoint is start-only (worst case: fleet warm, bounded by the budget
-  # alarm), so this is a hardening gap, not an exposure. Tracked as an issue.
-  # reserved_concurrent_executions = 5
-
   filename         = data.archive_file.scaler.output_path
   source_code_hash = data.archive_file.scaler.output_base64sha256
 
@@ -163,10 +126,6 @@ resource "aws_lambda_function" "scaler" {
   depends_on = [aws_cloudwatch_log_group.scaler]
 }
 
-# ---------------------------------------------------------------------------
-# Nightly cool-down schedule
-# ---------------------------------------------------------------------------
-
 data "aws_iam_policy_document" "scheduler_assume" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -176,12 +135,6 @@ data "aws_iam_policy_document" "scheduler_assume" {
       identifiers = ["scheduler.amazonaws.com"]
     }
 
-    # Confused-deputy guard. SourceAccount rather than the exact schedule
-    # ARN: CreateSchedule validates role assumability BEFORE the schedule
-    # exists, so a StringEquals on the schedule's own ARN fails validation
-    # (chicken-and-egg, hit during the first apply). SourceAccount still
-    # blocks the real threat — cross-account schedules assuming this role —
-    # and same-account actors able to create schedules are already trusted.
     condition {
       test     = "StringEquals"
       variable = "aws:SourceAccount"
@@ -208,15 +161,10 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
   policy = data.aws_iam_policy_document.scheduler_invoke_permissions.json
 }
 
-# Nightly cool-down: stop every service at 23:30 Central. Deploys and the
-# wake endpoint both restore desired_count=1, so this is deliberate
-# desired-count drift per the same service-ops convention as `make
-# stop-all` (Makefile) -- not a Terraform-owned value.
 resource "aws_scheduler_schedule" "nightly_cooldown" {
   name                = "${local.name_prefix}-nightly-cooldown"
   schedule_expression = "cron(30 23 * * ? *)"
-  # America/Chicago rather than UTC so the cool-down time doesn't drift
-  # across DST changes.
+
   schedule_expression_timezone = "America/Chicago"
 
   flexible_time_window {
@@ -228,16 +176,14 @@ resource "aws_scheduler_schedule" "nightly_cooldown" {
     role_arn = aws_iam_role.scheduler_invoke.arn
     input    = jsonencode({ action = "stop-all" })
   }
+  # Confused-deputy guard. SourceAccount rather than the exact schedule
+  # ARN: CreateSchedule validates role assumability BEFORE the schedule
+  # exists, so a StringEquals on the schedule's own ARN fails validation
+  # (chicken-and-egg, hit during the first apply). SourceAccount still
+  # blocks the real threat — cross-account schedules assuming this role —
+  # and same-account actors able to create schedules are already trusted.
 }
 
-# Idle sleep: every few minutes, scale to 0 any service that has served zero
-# ALB requests for var.idle_sleep_minutes. This is what makes on-demand the
-# fleet's default state -- the wake endpoint brings an app up, a visitor uses
-# it, and it puts itself back to sleep -- instead of the daily warm window
-# paying for ~16 task-hours per service whether or not anyone visited.
-# Same desired-count drift semantics as the cool-down; the Lambda's grace
-# rule (newest task must be older than the window) keeps it from undoing a
-# wake or a deploy that has not had a chance to be visited yet.
 resource "aws_scheduler_schedule" "idle_sleep" {
   count = var.idle_sleep_minutes > 0 ? 1 : 0
 
@@ -255,15 +201,6 @@ resource "aws_scheduler_schedule" "idle_sleep" {
   }
 }
 
-# Morning warm-up: start the listed services at 07:00 Central, so those apps
-# are already healthy rather than sitting behind the ALB's 503 until someone
-# uses the wake endpoint. Same desired-count drift semantics as the cool-down.
-#
-# Off by default since idle sleep landed: a warmed service that nobody visits
-# is put back to sleep within var.idle_sleep_minutes anyway, so the warm
-# window only buys a faster first visit at the cost of the whole window's
-# task-hours. Scoped rather than start-all on purpose, and count instead of
-# an unconditional resource so the default [] removes the schedule outright.
 resource "aws_scheduler_schedule" "morning_warmup" {
   count = length(var.morning_warmup_services) > 0 ? 1 : 0
 
@@ -285,10 +222,6 @@ resource "aws_scheduler_schedule" "morning_warmup" {
   }
 }
 
-# ---------------------------------------------------------------------------
-# ALB wake endpoint
-# ---------------------------------------------------------------------------
-
 resource "aws_lb_target_group" "scaler" {
   name        = "${local.name_prefix}-scaler"
   target_type = "lambda"
@@ -304,13 +237,8 @@ resource "aws_lambda_permission" "alb" {
   source_arn    = aws_lb_target_group.scaler.arn
 }
 
-# Lets the operator who manages this stack invoke the scaler from `make
-# stop/start`. This is a RESOURCE-BASED policy ON the
-# flightdeck-owned Lambda -- net-new, §5b-clean -- scoped to this one
-# function. It does NOT attach anything to the pre-existing operator IAM
-# user (that would modify a resource this stack doesn't own). Same-account:
-# a resource-policy grant alone is sufficient to invoke, no identity policy
-# on the user required. Authorized for this function specifically (2026-07-12).
+# Same-account principal: this resource-based grant alone authorizes the
+# invoke, so nothing is attached to the operator's IAM identity.
 resource "aws_lambda_permission" "operator_invoke" {
   statement_id  = "AllowOperatorManualInvoke"
   action        = "lambda:InvokeFunction"
@@ -325,15 +253,9 @@ resource "aws_lb_target_group_attachment" "scaler" {
   depends_on = [aws_lambda_permission.alb]
 }
 
-# "wake" is a reserved hostname -- app names must not collide with it. The
-# wildcard alias in edge.tf already routes *.{child_zone} to this ALB, so
-# no DNS changes are needed here; only the listener rule below.
 resource "aws_lb_listener_rule" "scaler" {
   listener_arn = aws_lb_listener.https.arn
 
-  # Pinned low so this rule's precedence is deterministic regardless of
-  # creation order: app rules (fargate-service module) omit priority and
-  # get auto-assigned high numbers, so priority=1 always wins here.
   priority = 1
 
   action {
@@ -347,10 +269,6 @@ resource "aws_lb_listener_rule" "scaler" {
     }
   }
 }
-
-# ---------------------------------------------------------------------------
-# Outputs
-# ---------------------------------------------------------------------------
 
 output "wake_url" {
   description = "Fleet wake endpoint: lists services and starts any that are stopped"

@@ -1,7 +1,3 @@
-# GitHub Actions OIDC federation + one deploy role per registered app.
-# Net-new resources only (spec 5b): no role imports and no changes to
-# pre-existing IAM resources.
-
 resource "aws_iam_openid_connect_provider" "github_actions" {
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
@@ -59,9 +55,6 @@ data "aws_iam_policy_document" "github_actions_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Exact registered repository only. Pull-request refs, feature branches,
-    # non-release tags, and unrelated repositories under the same owner are
-    # excluded from the trust policy.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
@@ -89,10 +82,6 @@ resource "aws_iam_role" "deploy" {
   }
 }
 
-# Every task and execution role created by an app deployment must carry this
-# app-specific boundary. Even if a trusted workflow writes a malicious inline
-# policy, its effective permissions cannot exceed the app's own ECR/log/S3
-# resources below.
 data "aws_iam_policy_document" "task_permissions_boundary" {
   for_each = local.app_deploy
 
@@ -155,18 +144,6 @@ data "aws_iam_policy_document" "task_permissions_boundary" {
     ]
   }
 
-  # Mail is the one capability an app cannot switch on for itself: it appears
-  # here only for apps the operator listed in var.mail_senders, so every other
-  # app's boundary is unchanged by this block existing. That matters more than
-  # usual because SES reputation and sending quota are account-wide — one app
-  # sending badly degrades deliverability for all of them.
-  #
-  # The ses:FromAddress condition is the real constraint. Resources stay "*"
-  # because a send is authorized against the identity of the From domain,
-  # which for a prod app is a domain verified out of band; pinning ARNs here
-  # would mean bootstrap had to know every app's production domain. The
-  # condition pins the exact addresses instead, so even a malicious inline
-  # policy on the task role cannot send as anyone else.
   dynamic "statement" {
     for_each = contains(keys(var.mail_senders), each.key) ? [each.key] : []
 
@@ -178,8 +155,19 @@ data "aws_iam_policy_document" "task_permissions_boundary" {
       condition {
         test     = "StringEquals"
         variable = "ses:FromAddress"
+        # Mail is the one capability an app cannot switch on for itself: it appears
+        # here only for apps the operator listed in var.mail_senders, so every other
+        # app's boundary is unchanged by this block existing. That matters more than
+        # usual because SES reputation and sending quota are account-wide — one app
+        # sending badly degrades deliverability for all of them.
+        #
+        # The ses:FromAddress condition is the real constraint. Resources stay "*"
+        # because a send is authorized against the identity of the From domain,
+        # which for a prod app is a domain verified out of band; pinning ARNs here
+        # would mean bootstrap had to know every app's production domain. The
+        # condition pins the exact addresses instead, so even a malicious inline
+        # policy on the task role cannot send as anyone else.
         values = concat(
-          # Dev always sends from the platform zone, never the prod domain.
           ["${statement.value}-dev@${local.child_zone_name}"],
           var.mail_senders[statement.value],
         )
@@ -196,9 +184,6 @@ resource "aws_iam_policy" "task_permissions_boundary" {
   policy      = data.aws_iam_policy_document.task_permissions_boundary[each.key].json
 }
 
-# The only optional task-role grant supported by the manifest. Keeping this as
-# a bootstrap-owned managed policy means the deploy role never needs the
-# privilege-escalation-prone iam:PutRolePolicy action.
 data "aws_iam_policy_document" "task_storage_permissions" {
   for_each = local.app_services
 
@@ -231,8 +216,7 @@ resource "aws_iam_policy" "task_storage" {
 }
 
 # ECS resolves task-definition secret references before container startup, so
-# this permission belongs to the execution role. The policy is bootstrap-owned
-# and path-scoped; app Terraform can attach it but can never broaden it.
+# this permission belongs to the execution role.
 data "aws_iam_policy_document" "exec_secret_permissions" {
   for_each = local.app_services
 
@@ -251,18 +235,10 @@ resource "aws_iam_policy" "exec_secrets" {
   policy      = data.aws_iam_policy_document.exec_secret_permissions[each.key].json
 }
 
-# Mail policies are bootstrap-owned for the same reason storage and secret
-# policies are: the app deploy role can attach a policy but can never create
-# one, so an app repository cannot mint itself new permissions. Only services
-# whose app appears in var.mail_senders get a policy at all — an app that
-# declares email: without being authorized fails at apply with a missing
-# policy, which is a far better signal than an AccessDenied at send time.
 locals {
   mail_services = {
     for service, meta in local.app_services : service => {
       app = meta.app
-      # Prod may send as any address the operator authorized; dev is pinned to
-      # the platform zone so test traffic cannot spend production reputation.
       addresses = (
         meta.environment == "prod"
         ? var.mail_senders[meta.app]
@@ -281,10 +257,6 @@ data "aws_iam_policy_document" "task_mail_permissions" {
     actions   = ["ses:SendEmail", "ses:SendRawEmail"]
     resources = ["*"]
 
-    # The real constraint. Resources stay "*" because a send is authorized
-    # against the identity of the From domain, which for prod is verified out
-    # of band or via mail_managed_zones; the condition pins the exact
-    # addresses instead.
     condition {
       test     = "StringEquals"
       variable = "ses:FromAddress"
@@ -304,13 +276,15 @@ resource "aws_iam_policy" "task_mail" {
 data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
   for_each = local.app_deploy
 
-  # --- ECR: this app's prod and dev repositories only ---
-
   statement {
     sid       = "EcrAuthToken"
     actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
   }
+  # The real constraint. Resources stay "*" because a send is authorized
+  # against the identity of the From domain, which for prod is verified out
+  # of band or via mail_managed_zones; the condition pins the exact
+  # addresses instead.
 
   statement {
     sid = "EcrPushPull"
@@ -331,9 +305,6 @@ data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
       "arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/${repository}"
     ]
   }
-
-  # --- ECS: this app's prod and dev services/task definitions, except where
-  # AWS does not expose resource-level authorization ---
 
   statement {
     sid     = "EcsTaskDefinitionCreate"
@@ -386,8 +357,6 @@ data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
     )
   }
 
-  # --- ALB: this app's target groups and shared listener rules ---
-
   statement {
     sid       = "ElbRead"
     actions   = ["elasticloadbalancing:Describe*"]
@@ -427,8 +396,6 @@ data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
       "arn:aws:elasticloadbalancing:${var.region}:${data.aws_caller_identity.current.account_id}:listener-rule/app/${local.name_prefix}*/*/*/*",
     ]
   }
-
-  # --- CloudWatch Logs + alarms: this app only ---
 
   statement {
     sid = "LogGroups"
@@ -476,8 +443,6 @@ data "aws_iam_policy_document" "deploy_infrastructure_permissions" {
 
 data "aws_iam_policy_document" "deploy_identity_permissions" {
   for_each = local.app_deploy
-
-  # --- EC2: per-app task security groups ---
 
   statement {
     sid       = "Ec2Read"
@@ -553,8 +518,6 @@ data "aws_iam_policy_document" "deploy_identity_permissions" {
     resources = ["arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:security-group-rule/*"]
   }
 
-  # --- IAM: this app's four bounded task/execution roles only ---
-
   statement {
     sid     = "TaskRoleCreate"
     actions = ["iam:CreateRole"]
@@ -590,11 +553,8 @@ data "aws_iam_policy_document" "deploy_identity_permissions" {
     ])
   }
 
-  # AWS's IAM Service Authorization Reference explicitly lists
-  # iam:PermissionsBoundary for DeleteRole and DetachRolePolicy, but not for
-  # TagRole/UntagRole or PassRole. Keep tagging exact-resource-scoped here;
-  # boundary removal is never granted, arbitrary inline writes are never
-  # granted, and managed-policy attachment is allowlisted.
+  # The IAM Service Authorization Reference lists iam:PermissionsBoundary for
+  # DeleteRole and DetachRolePolicy but not for TagRole, UntagRole, or PassRole.
   statement {
     sid = "TaskRoleTagging"
     actions = [
@@ -677,8 +637,6 @@ data "aws_iam_policy_document" "deploy_identity_permissions" {
         variable = "iam:PolicyARN"
         values = [
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${local.name_prefix}-${statement.value}-task-storage",
-          # Attach-only, exactly like storage: the policy itself is created
-          # above and the deploy role holds no iam:CreatePolicy.
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${local.name_prefix}-${statement.value}-task-mail",
         ]
       }
@@ -736,8 +694,6 @@ data "aws_iam_policy_document" "deploy_identity_permissions" {
 data "aws_iam_policy_document" "deploy_data_permissions" {
   for_each = local.app_deploy
 
-  # --- App data buckets: this app's dev/prod buckets only ---
-
   statement {
     sid = "AppDataBucketLifecycle"
     actions = [
@@ -775,15 +731,12 @@ data "aws_iam_policy_document" "deploy_data_permissions" {
     resources = [for bucket in each.value.data_bucket_names : "arn:aws:s3:::${bucket}"]
   }
 
-  # force_destroy enumerates and removes any app-written objects before the
-  # bucket itself is deleted. The deploy role never reads app data objects.
+  # force_destroy deletes every object before the bucket itself is deleted.
   statement {
     sid       = "DeleteAppDataObjectsForDestroy"
     actions   = ["s3:DeleteObject"]
     resources = [for bucket in each.value.data_bucket_names : "arn:aws:s3:::${bucket}/*"]
   }
-
-  # --- Terraform state: own keys plus read-only bootstrap wiring ---
 
   statement {
     sid       = "StateBucketListOwnPrefix"
@@ -807,8 +760,6 @@ data "aws_iam_policy_document" "deploy_data_permissions" {
     resources = [for key in each.value.state_object_keys : "arn:aws:s3:::${local.state_bucket_name}/${key}"]
   }
 
-  # Interim narrow read required by template-app's terraform_remote_state data
-  # source. App roles cannot write or delete bootstrap state.
   statement {
     sid       = "BootstrapStateRead"
     actions   = ["s3:GetObject"]
@@ -828,15 +779,9 @@ data "aws_iam_policy_document" "deploy_data_permissions" {
   }
 }
 
-# Cognito lives in its own per-app policy (not deploy_identity) because the
-# identity policy sits near IAM's 6144-char managed-policy size limit.
-# Pool ARNs contain a server-generated ID that doesn't exist until the pool
-# does, so the S3-style name-pattern scoping is impossible here. Instead,
-# creation must carry BOTH the mandatory project tag (from the module's
-# provider default_tags) and the app's own flightdeck-app tag (set by the
-# module on the pool), and every mutation requires that same app tag on the
-# resource — so each deploy role can touch only its own app's pools, the
-# tag-based equivalent of the storage grant's name scoping.
+# Separate from deploy_identity because that policy sits near IAM's
+# 6,144-character managed-policy size limit. User pool ARNs embed a
+# server-generated ID, so pools can be scoped by tag but not by name pattern.
 data "aws_iam_policy_document" "deploy_auth_permissions" {
   for_each = local.app_deploy
 
@@ -879,9 +824,6 @@ data "aws_iam_policy_document" "deploy_auth_permissions" {
     }
   }
 
-  # Terraform's refresh reads. Describe calls don't reliably support tag
-  # conditions, so reads are ARN-bounded but not tag-conditioned (mirrors
-  # ElbRead/Ec2Read in the identity policy).
   statement {
     sid = "CognitoPoolRead"
     actions = [
@@ -893,11 +835,6 @@ data "aws_iam_policy_document" "deploy_auth_permissions" {
     resources = ["arn:aws:cognito-idp:${var.region}:${data.aws_caller_identity.current.account_id}:userpool/*"]
   }
 
-  # Hosted-UI domain actions authorize inconsistently against the userpool
-  # resource (DescribeUserPoolDomain takes only the domain prefix, no pool
-  # id), so this is the one unavoidable wildcard — kept to the three domain
-  # actions and bound to Flightdeck's region, same pattern as
-  # EcsTaskDefinitionDelete in the infrastructure policy.
   statement {
     sid = "CognitoPoolDomains"
     actions = [
@@ -942,6 +879,9 @@ resource "aws_iam_policy" "deploy_data" {
 resource "aws_iam_role_policy_attachment" "deploy_infrastructure" {
   for_each = local.app_deploy
 
+  # Terraform's refresh reads. Describe calls don't reliably support tag
+  # conditions, so reads are ARN-bounded but not tag-conditioned (mirrors
+  # ElbRead/Ec2Read in the identity policy).
   role       = aws_iam_role.deploy[each.key].name
   policy_arn = aws_iam_policy.deploy_infrastructure[each.key].arn
 }
@@ -953,6 +893,11 @@ resource "aws_iam_role_policy_attachment" "deploy_identity" {
   policy_arn = aws_iam_policy.deploy_identity[each.key].arn
 }
 
+# Hosted-UI domain actions authorize inconsistently against the userpool
+# resource (DescribeUserPoolDomain takes only the domain prefix, no pool
+# id), so this is the one unavoidable wildcard — kept to the three domain
+# actions and bound to Flightdeck's region, same pattern as
+# EcsTaskDefinitionDelete in the infrastructure policy.
 resource "aws_iam_role_policy_attachment" "deploy_data" {
   for_each = local.app_deploy
 

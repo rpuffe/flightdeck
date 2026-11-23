@@ -22,8 +22,6 @@ class ReleaseReference:
     pattern: str
 
 
-# This is the single inventory of release-coupled references. Release prep and
-# CI both consume it; adding a new self-reference requires adding it here once.
 RELEASE_REFERENCES = (
     ReleaseReference("deploy build workflow", ".github/workflows/deploy.yml", r"(build-scan-push\.yml@)(%s)" % TAG_PATTERN),
     ReleaseReference("deploy terraform workflow", ".github/workflows/deploy.yml", r"(terraform-plan-apply\.yml@)(%s)" % TAG_PATTERN),
@@ -44,7 +42,6 @@ def validate_tag(tag: str) -> None:
 
 
 def replace_atomically(contents: dict[Path, str]) -> None:
-    """Replace a file set with temp files and roll back any partial failure."""
     prepared: list[tuple[Path, Path, bytes, int]] = []
     replaced: list[tuple[Path, bytes, int]] = []
     try:
@@ -97,8 +94,6 @@ def inspect(root: Path, expected_tag: str, update: bool = False) -> list[str]:
             errors.append(
                 f"{reference.name}: {reference.path} uses {actual_tag}, expected {expected_tag}"
             )
-    # --set is two-phase: validate the entire inventory before writing any
-    # file, then apply each file's edits back-to-front from the validated text.
     if errors or not update:
         return errors
     changes: dict[Path, list[tuple[int, int, str]]] = {}

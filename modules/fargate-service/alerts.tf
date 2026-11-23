@@ -1,10 +1,3 @@
-# Optional log-pattern alerts (spec §6, v0.7.0: the studio app's replication
-# sidecar can fail silently while the healthcheck stays green — the error
-# lines land in the log group the platform already owns, so the app declares
-# which patterns are alert-worthy and the platform watches for them).
-# Default ([]) creates zero new resources; existing manifests see an empty
-# diff — the established opt-in pattern.
-
 resource "aws_cloudwatch_log_metric_filter" "alert" {
   for_each = { for a in var.alerts : a.name => a }
 
@@ -20,9 +13,6 @@ resource "aws_cloudwatch_log_metric_filter" "alert" {
   }
 }
 
-# One matching log line within a 5-minute period raises the alarm; actions
-# go to the same shared topic as the service alarms (main.tf), so with no
-# topic wired in these too are visibility-only.
 resource "aws_cloudwatch_metric_alarm" "alert" {
   for_each = aws_cloudwatch_log_metric_filter.alert
 
