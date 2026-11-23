@@ -2,3 +2,4 @@ mistake = "the email address regex was hand-copied into bootstrap, the module, t
 check = ["python3", "-m", "unittest", "tests.test_manifest_rules.ManifestRuleSyncTests.test_every_copy_of_a_shared_rule_is_identical"]
 bad_commit = "42c10a9^"
 files = ["bootstrap/variables.tf", "modules/fargate-service/variables.tf", "template-app/Makefile", "template-app/app-manifest.schema.json"]
+expect = "rule .email.from pattern. differs between copies"
