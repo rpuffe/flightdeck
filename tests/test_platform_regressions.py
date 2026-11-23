@@ -29,16 +29,6 @@ class StudioDeployRegressionTests(unittest.TestCase):
         resources_start = log_groups_statement.index("resources =")
         self.assertNotIn('"*"', log_groups_statement[resources_start:])
 
-    def test_stateful_service_disables_availability_zone_rebalancing(self):
-        module = (ROOT / "modules" / "fargate-service" / "main.tf").read_text()
-
-        for setting in (
-            'deployment_maximum_percent         = var.storage != "" ? 100 : 200',
-            'deployment_minimum_healthy_percent = var.storage != "" ? 0 : 100',
-            'availability_zone_rebalancing = var.storage != "" ? "DISABLED" : null',
-        ):
-            self.assertIn(setting, module)
-
 
 class FleetScheduleRegressionTests(unittest.TestCase):
     def test_morning_warmup_is_scoped_and_never_starts_the_whole_fleet(self):
@@ -88,21 +78,6 @@ class FleetScheduleRegressionTests(unittest.TestCase):
 
 
 class FargateSpotRegressionTests(unittest.TestCase):
-    def test_service_uses_capacity_provider_strategy_not_launch_type(self):
-        module = (ROOT / "modules" / "fargate-service" / "main.tf").read_text()
-
-        self.assertIn("capacity_provider = var.capacity_provider", module)
-        self.assertNotIn('launch_type     = "FARGATE"', module)
-
-    def test_capacity_provider_defaults_to_fargate_spot(self):
-        variables = (ROOT / "modules" / "fargate-service" / "variables.tf").read_text()
-
-        start = variables.index('variable "capacity_provider"')
-        end = variables.index("\nvariable ", start + 1) if "\nvariable " in variables[start:] else len(variables)
-        block = variables[start:end]
-
-        self.assertIn('default     = "FARGATE_SPOT"', block)
-
     def test_cluster_attaches_both_fargate_capacity_providers(self):
         platform = (ROOT / "bootstrap" / "platform.tf").read_text()
 

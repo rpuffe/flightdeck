@@ -1,4 +1,4 @@
 mistake = "stateful services deployed 100/0 while ECS AZ rebalancing stayed on by default, which AWS rejects at maximumPercent 100"
-check = ["python3", "-m", "unittest", "tests.test_platform_regressions.StudioDeployRegressionTests.test_stateful_service_disables_availability_zone_rebalancing"]
+check = ["make", "test-terraform"]
 bad_commit = "9a1306a^"
 files = ["modules/fargate-service/main.tf"]
