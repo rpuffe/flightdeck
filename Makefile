@@ -24,7 +24,7 @@ HELLO_BACKEND_FLAGS = -backend-config="bucket=$(STATE_BUCKET)" \
 CLUSTER := flightdeck
 APP_DOMAIN := fd.robertpuffe.com
 
-.PHONY: fmt validate test plan-bootstrap bootstrap destroy-bootstrap \
+.PHONY: fmt validate test lint plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
         new-app check-release prove-checks prepare-release secret-set secret-check secret-rotate secret-delete
@@ -135,6 +135,11 @@ test:
 
 prove-checks:
 	python3 scripts/prove_checks.py
+
+# ruff (pinned in the script), bare python3 argv, tracked build artifacts,
+# trivy:ignore reasons + allowlist. Needs uvx or pipx for ruff.
+lint:
+	python3 scripts/lint_repo.py
 
 check-release:
 	python3 scripts/release_consistency.py $(if $(TAG),--tag $(TAG),)

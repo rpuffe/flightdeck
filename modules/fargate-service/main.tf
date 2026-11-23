@@ -177,7 +177,7 @@ resource "aws_vpc_security_group_ingress_rule" "service" {
 # internet gateway, and AWS-0104 fires on the 0.0.0.0/0 CIDR regardless of
 # port scoping. Compensating controls: ALB-only ingress, permissionless task
 # role. Egress lockdown (VPC endpoints + explicit CIDRs) is roadmap work.
-#trivy:ignore:aws-0104
+#trivy:ignore:aws-0104 -- tasks need internet egress for ECR and logs, see comment above
 resource "aws_vpc_security_group_egress_rule" "service" {
   security_group_id = aws_security_group.service.id
   description       = "All outbound"

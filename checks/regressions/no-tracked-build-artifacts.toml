@@ -1,0 +1,4 @@
+mistake = "a compiled __pycache__/*.pyc was committed with the scaler Lambda"
+check = ["python3", "scripts/lint_repo.py", "artifacts"]
+bad_commit = "216cc4f"
+files = ["bootstrap/lambda/__pycache__/scaler.cpython-314.pyc"]

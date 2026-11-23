@@ -1,0 +1,4 @@
+mistake = "a bare trivy:ignore over a whole IAM policy-document data block hid every finding in it"
+check = ["python3", "scripts/lint_repo.py", "trivy"]
+bad_commit = "a9cbbd0"
+files = ["bootstrap/oidc.tf"]

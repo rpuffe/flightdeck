@@ -1,0 +1,4 @@
+mistake = "release_consistency.py called Path.read_text() without encoding=, which Ruff cannot see on an inferred Path"
+check = ["python3", "scripts/lint_repo.py", "encoding"]
+bad_commit = "88085d7^"
+files = ["scripts/release_consistency.py"]

@@ -131,7 +131,7 @@ resource "aws_ecr_lifecycle_policy" "app_dev" {
 # customer-managed key is a monthly cost plus key-policy surface to protect
 # alarm state text that contains resource names, no data. AVD-AWS-0095
 # fires HIGH regardless of payload sensitivity.
-#trivy:ignore:aws-0095
+#trivy:ignore:aws-0095 -- CloudWatch alarms cannot send to an AWS-managed-key SNS topic, see comment above
 resource "aws_sns_topic" "alerts" {
   name = "${local.name_prefix}-alerts"
 }
