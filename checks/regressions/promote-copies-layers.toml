@@ -2,3 +2,4 @@ mistake = "promote.yml copied only the image manifest, so promotion failed with 
 check = ["python3", "-m", "unittest", "tests.test_platform_regressions.PromotionRegressionTests"]
 bad_commit = "421c3f9^"
 files = [".github/workflows/promote.yml"]
+expect = "crane copy"

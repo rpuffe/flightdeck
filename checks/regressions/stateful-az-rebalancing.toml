@@ -2,3 +2,4 @@ mistake = "stateful services deployed 100/0 while ECS AZ rebalancing stayed on b
 check = ["make", "test-terraform"]
 bad_commit = "9a1306a^"
 files = ["modules/fargate-service/main.tf"]
+expect = "availability_zone_rebalancing.*not found"

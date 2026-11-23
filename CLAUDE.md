@@ -38,7 +38,7 @@ via Terraform, reusable GitHub Actions, and an `app-manifest.yaml` contract.
 | A regression check must fail on the commit that had the mistake | `make prove-checks` over `checks/regressions/*.toml` (platform-ci) |
 
 Adding a check for a past mistake: add `checks/regressions/<name>.toml` with
-`mistake`, `check` (argv), `bad_commit`, and `files`, then run
+`mistake`, `check` (argv), `bad_commit`, `expect` (a regex the failure output must match), and either `files` (copied from `bad_commit`) or `patch` (replays the mistake on today's code), then run
 `python3 scripts/prove_checks.py <name>` locally.
 
 ## Subagent Usage
