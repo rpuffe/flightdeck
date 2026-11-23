@@ -1,0 +1,4 @@
+mistake = "the wake page redirected on a blind timer into a 60-90s cold start instead of waiting for a healthy target"
+check = ["python3", "-m", "unittest", "tests.test_scaler.ScalerTests.test_wake_redirects_only_after_target_is_healthy"]
+bad_commit = "2531b96^"
+files = ["bootstrap/lambda/scaler.py"]

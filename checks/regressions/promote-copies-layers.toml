@@ -1,0 +1,4 @@
+mistake = "promote.yml copied only the image manifest, so promotion failed with LayersNotFound once a layer was new to the prod repository"
+check = ["python3", "-m", "unittest", "tests.test_platform_regressions.PromotionRegressionTests"]
+bad_commit = "421c3f9^"
+files = [".github/workflows/promote.yml"]

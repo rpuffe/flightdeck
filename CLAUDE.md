@@ -31,6 +31,16 @@ via Terraform, reusable GitHub Actions, and an `app-manifest.yaml` contract.
 - Scope discipline: new ideas go to spec §11 (roadmap parking lot), not into
   v1. The non-goals section (§4) is binding.
 
+## Rules and what enforces them
+
+| Rule | Enforced by |
+|---|---|
+| A regression check must fail on the commit that had the mistake | `make prove-checks` over `checks/regressions/*.toml` (platform-ci) |
+
+Adding a check for a past mistake: add `checks/regressions/<name>.toml` with
+`mistake`, `check` (argv), `bad_commit`, and `files`, then run
+`python3 scripts/prove_checks.py <name>` locally.
+
 ## Subagent Usage
 
 - Use subagents whenever possible 
