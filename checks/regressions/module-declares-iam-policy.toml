@@ -2,3 +2,4 @@ mistake = "the mail module declared aws_iam_policy itself, but the per-app deplo
 check = ["python3", "-m", "unittest", "tests.test_deploy_role_coverage.DeployRoleCoverageTests.test_module_declares_no_iam_policies"]
 bad_commit = "9084b6d^"
 files = ["modules/fargate-service/email.tf", "bootstrap/oidc.tf"]
+expect = "email.tf declares aws_iam_policy; IAM policies are bootstrap-owned"
