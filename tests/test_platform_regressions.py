@@ -244,7 +244,11 @@ memory: 512
                 env=env,
                 check=False,
             )
-            return result, aws_log.read_text(), aws_value.read_text() if aws_value.exists() else ""
+            return (
+                result,
+                aws_log.read_text() if aws_log.exists() else "",
+                aws_value.read_text() if aws_value.exists() else "",
+            )
 
     def test_secret_set_keeps_value_out_of_process_arguments_and_output(self):
         secret = "not-for-logs value"

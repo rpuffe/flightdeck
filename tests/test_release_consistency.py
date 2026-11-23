@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import shutil
 import subprocess
 import sys
@@ -11,6 +12,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/release_consistency.py"
+ASCII_LOCALE = {"LC_ALL": "C", "LANG": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0"}
 SPEC = importlib.util.spec_from_file_location("release_consistency", SCRIPT)
 release_consistency = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -89,6 +91,7 @@ class ReleaseConsistencyTests(unittest.TestCase):
             [sys.executable, str(SCRIPT), "--root", str(self.root), "--set", "v9.9.9"],
             text=True,
             capture_output=True,
+            env={**os.environ, **ASCII_LOCALE},
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)

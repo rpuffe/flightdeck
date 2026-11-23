@@ -1,0 +1,5 @@
+mistake = "the wake page redirected to the app on a blind timer into a 60-90s cold start instead of polling until the target is healthy"
+check = ["python3", "-m", "unittest", "tests.test_scaler.ScalerTests.test_wake_starts_sleeping_service_and_polls_until_healthy"]
+bad_commit = "2531b96^"
+patch = "wake-waits-for-health.patch"
+expect = "content=\"6;url=\\?svc=demo\"' not found"

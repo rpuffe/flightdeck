@@ -27,7 +27,7 @@ APP_DOMAIN := fd.robertpuffe.com
 .PHONY: fmt validate test plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
-        new-app check-release prepare-release secret-set secret-check secret-rotate secret-delete
+        new-app check-release prove-checks prepare-release secret-set secret-check secret-rotate secret-delete
 
 # --- Service operations ------------------------------------------------------
 # Scale operations are deliberate drift: terraform state keeps desired_count=1,
@@ -132,6 +132,9 @@ validate:
 
 test:
 	python3 -m unittest discover -s tests -v
+
+prove-checks:
+	python3 scripts/prove_checks.py
 
 check-release:
 	python3 scripts/release_consistency.py $(if $(TAG),--tag $(TAG),)
