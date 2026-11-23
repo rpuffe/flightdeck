@@ -1,0 +1,4 @@
+mistake = "the mail module declared aws_iam_policy itself, but the per-app deploy role has no iam:CreatePolicy, so the first real apply failed"
+check = ["python3", "-m", "unittest", "tests.test_deploy_role_coverage.DeployRoleCoverageTests.test_module_declares_no_iam_policies"]
+bad_commit = "9084b6d^"
+files = ["modules/fargate-service/email.tf", "bootstrap/oidc.tf"]
