@@ -1,8 +1,3 @@
-# Reusable workflow: PR validation with ZERO cloud credentials. OIDC trust
-# (bootstrap/oidc.tf) only covers refs/heads/main and refs/tags/v* — PR refs
-# are deliberately excluded, so unmerged code never holds AWS credentials.
-# For the same reason there is no terraform plan here (plan needs a role to
-# assume); just build, both Trivy gates, and fmt/init/validate.
 name: pr-checks
 
 on:
@@ -39,12 +34,8 @@ jobs:
           image-ref: app:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: "1"
-          # Unfixable vulns would block builds with no available remediation —
-          # gate only on issues a fix could actually resolve (spec §5b threshold).
           ignore-unfixed: true
 
-      # Deliberate HIGH/CRITICAL-only gate (spec 5b threshold), same as
-      # terraform-plan-apply.yml.
       - name: Trivy IaC scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -57,7 +48,6 @@ jobs:
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "~> 1.13"
-          # The wrapper breaks piping/exit-code handling in scripted steps.
           terraform_wrapper: false
 
       - name: Terraform fmt check

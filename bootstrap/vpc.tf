@@ -1,6 +1,6 @@
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 6.0" # v6.x line requires AWS provider >= 6.x, matching our ~> 6.0 pin
+  version = "~> 6.0"
 
   name = "${local.name_prefix}-vpc"
   cidr = "10.20.0.0/16"
@@ -12,10 +12,6 @@ module "vpc" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  # No NAT (spec §10, 2026-11-01): app tasks run in the public subnets with
-  # a per-task public IPv4 and egress through the internet gateway. The
-  # private subnets are kept, unused and free, so an app still pinned to a
-  # pre-v0.11 module fails on egress rather than on a missing output.
   enable_nat_gateway = false
 }
 

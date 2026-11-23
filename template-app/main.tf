@@ -14,8 +14,6 @@ terraform {
     }
   }
 
-  # Configured at init time: -backend-config bucket/key/region/use_lockfile.
-  # Per-app state key: apps/<name>/terraform.tfstate in the shared bucket.
   backend "s3" {}
 }
 

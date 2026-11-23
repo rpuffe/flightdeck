@@ -45,9 +45,6 @@ variable "idle_sleep_minutes" {
   default     = 30
 
   validation {
-    # Floor of 20: the sweep runs every 10 minutes and ALB RequestCount can
-    # lag by a few minutes, so a window near 10 can miss a real visit between
-    # sweeps and stop an app that is in use.
     condition     = var.idle_sleep_minutes == 0 || (var.idle_sleep_minutes >= 20 && var.idle_sleep_minutes <= 1440)
     error_message = "idle_sleep_minutes must be 0 (disabled) or between 20 and 1440 (10-minute sweep cadence plus metric lag)."
   }
@@ -63,10 +60,6 @@ variable "morning_warmup_services" {
     error_message = "morning_warmup_services entries must be unique."
   }
 
-  # Each entry must belong to a registered app, either as the prod service
-  # (<app>) or its dev counterpart (<app>-dev). A typo here would otherwise
-  # apply cleanly and then fail silently at 07:00 every morning inside the
-  # Lambda's per-service try/except, which records the error and moves on.
   validation {
     condition = alltrue([
       for service in var.morning_warmup_services :
@@ -138,20 +131,11 @@ variable "mail_managed_zones" {
     error_message = "mail_managed_zones entries must be unique."
   }
 
-  # The parent zone hosts a live personal site and is data-source-only apart
-  # from the single NS delegation record (spec 5b, edge.tf). Listing it here
-  # would have Terraform write SPF/DMARC TXT records at that apex — an SPF
-  # "-all" on a domain with real mailboxes silently breaks their delivery.
-  # A hard failure, not a silent filter: the operator meant something by the
-  # entry and needs to see that it cannot be honoured.
   validation {
     condition     = !contains(var.mail_managed_zones, var.parent_zone_name)
     error_message = "mail_managed_zones must not contain the parent zone (var.parent_zone_name). It hosts a live site and is data-source-only apart from the NS delegation record; writing SPF/DMARC there would affect mail flightdeck does not own."
   }
 
-  # The child zone gets its identity from aws_sesv2_email_identity.child_zone
-  # unconditionally; listing it here would declare a second identity and a
-  # duplicate record set for the same domain.
   validation {
     condition     = !contains(var.mail_managed_zones, "${var.subdomain}.${var.parent_zone_name}")
     error_message = "mail_managed_zones must not contain the flightdeck child zone — its SES identity and DNS records are already managed unconditionally in ses.tf."

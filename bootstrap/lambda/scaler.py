@@ -1,8 +1,7 @@
 """flightdeck-scaler: idle sleep, nightly cool-down, optional morning
 warm-up, and the explicit ALB wake endpoint.
 
-Two entrypoints share this one function (spec 5b: net-new, flightdeck-
-prefixed, no speculative surface area):
+Two entrypoints share this one function:
 
 1. Scheduler / direct-invoke events: {"action": ..., "services": [...]}.
    Drives ECS desired_count for the flightdeck cluster. Used by the
@@ -10,21 +9,10 @@ prefixed, no speculative surface area):
    action=stop-all, optional morning action=start over a scoped service
    list), `make stop`/`make start`/`make stop-all`/`make start-all`, and any
    other direct invoke. Stop actions only set desired_count to 0.
-
-   sleep-idle is the wake endpoint's counterpart: a service that has served
-   zero ALB requests for IDLE_SLEEP_MINUTES (and whose newest task is older
-   than that window) is scaled back to 0. Together they make on-demand the
-   default state -- a visitor wakes an app from wake.<child_zone>, uses it,
-   and it goes back to sleep on its own.
 2. ALB target events (identified structurally by requestContext.elb):
    serve only wake.<child_zone>. The public endpoint lists fleet state and
    starts a selected service. It is start-only by construction; stopping is
    available only through the schedules or authenticated direct invocation.
-
-Direct-visit auto-wake was removed after live testing proved listener-rule
-flipping could deadlock a service behind the warming page. A sleeping app's
-own URL therefore returns the ALB's normal 503 until it is started from the
-explicit wake page.
 
 boto3 comes from the Lambda Python 3.13 runtime; zero pip dependencies.
 """
@@ -38,8 +26,6 @@ import boto3
 
 CLUSTER = os.environ["CLUSTER"]
 APP_DOMAIN = os.environ["APP_DOMAIN"]
-# 0 disables sleep-idle inside the Lambda too, so a stray direct invoke of
-# the action while the schedule is removed is a no-op rather than a surprise.
 IDLE_SLEEP_MINUTES = int(os.environ.get("IDLE_SLEEP_MINUTES", "0"))
 
 WAKE_HOST = f"wake.{APP_DOMAIN}"
@@ -49,13 +35,7 @@ elbv2 = boto3.client("elbv2")
 cloudwatch = boto3.client("cloudwatch")
 
 
-# ---------------------------------------------------------------------------
-# ECS helpers
-# ---------------------------------------------------------------------------
-
-
 def _list_cluster_services():
-    """Return {service_name: {"desired": int, "running": int}} for CLUSTER."""
     arns = []
     paginator = ecs.get_paginator("list_services")
     for page in paginator.paginate(cluster=CLUSTER):
@@ -95,14 +75,6 @@ def _target_group_healthy(tg_arn):
     )
 
 
-# ---------------------------------------------------------------------------
-# Per-service operations used by the action-event path. Each wraps its ECS
-# call in try/except so one bad service name in a
-# batch can't abort the rest -- callers collect {name: "ok"/error-message}
-# and return it verbatim in the response JSON.
-# ---------------------------------------------------------------------------
-
-
 def _stop_service(name):
     try:
         _set_desired_count(name, 0)
@@ -121,21 +93,11 @@ def _start_service(name):
         return f"error: {e}"
 
 
-# ---------------------------------------------------------------------------
-# sleep-idle: scale a running service back to 0 once nobody has used it.
-#
-# "Used" means ALB RequestCount on the service's own target group, which
-# counts real client requests only -- the ALB's health checks are not
-# included, so a healthy-but-unvisited app reads as idle. The wake page's
-# own polling hits wake.<child_zone> (the Lambda's target group), never the
-# app's, so waking an app and then not visiting it still lets it sleep.
-# ---------------------------------------------------------------------------
+# ALB metrics exclude health-check requests, so RequestCount on a service's
+# own target group counts only real client traffic.
 
 
 def _target_groups_by_service(names):
-    """{service_name: (tg_arn_suffix, lb_arn_suffix)} for the given services,
-    in the dimension shapes CloudWatch wants. Services whose target group is
-    missing or detached from a load balancer are left out (and skipped)."""
     found = {}
     # describe_target_groups accepts at most 20 names per call, and fails the
     # whole call if any name is unknown -- so resolve one name at a time on
@@ -166,7 +128,6 @@ def _target_groups_by_service(names):
 
 
 def _request_counts(dimensions_by_service, start, end):
-    """Sum of ALB RequestCount per service over [start, end)."""
     if not dimensions_by_service:
         return {}
     period = max(60, int((end - start).total_seconds()) // 60 * 60)
@@ -198,7 +159,6 @@ def _request_counts(dimensions_by_service, start, end):
 
 
 def _newest_task_created_at(name):
-    """createdAt of the service's newest task, or None if it has none."""
     arns = ecs.list_tasks(cluster=CLUSTER, serviceName=name).get("taskArns") or []
     if not arns:
         return None
@@ -208,14 +168,6 @@ def _newest_task_created_at(name):
 
 
 def _handle_sleep_idle(now=None):
-    """Scale to 0 every service that is desired>=1, has had a task running
-    for at least IDLE_SLEEP_MINUTES, and served zero requests in that window.
-
-    Per-service outcomes: "ok" (stopped), "active" (requests seen),
-    "warm" (newest task younger than the window -- just woken or deployed),
-    "no-tasks" (desired>=1 but nothing running: a failing deploy is the
-    circuit breaker's problem, not ours), "no-target-group", or an error.
-    """
     if IDLE_SLEEP_MINUTES <= 0:
         print(json.dumps({"warning": "sleep-idle invoked while disabled (IDLE_SLEEP_MINUTES=0)"}))
         return {"status": "ignored", "reason": "sleep-idle disabled"}
@@ -223,10 +175,6 @@ def _handle_sleep_idle(now=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     window_start = now - datetime.timedelta(minutes=IDLE_SLEEP_MINUTES)
 
-    # The fleet-wide lookups run before the per-service loop; if one of them
-    # fails wholesale (throttling, a transient error) nothing is stopped and
-    # the next sweep retries -- but log it as an action_result so the
-    # existing error metric filter sees it instead of a bare traceback.
     try:
         services = _list_cluster_services()
         candidates = sorted(name for name, info in services.items() if info["desired"] > 0)
@@ -271,11 +219,6 @@ def _handle_sleep_idle(now=None):
     return response
 
 
-# ---------------------------------------------------------------------------
-# Scheduler / direct-invoke events: {"action": ..., "services": [...]}
-# ---------------------------------------------------------------------------
-
-
 def _handle_action_event(event):
     action = event.get("action")
     services = event.get("services")
@@ -308,10 +251,6 @@ def _handle_action_event(event):
     print(json.dumps({"warning": "unknown action, no changes made", "event": event}))
     return {"status": "ignored", "reason": "unknown action"}
 
-
-# ---------------------------------------------------------------------------
-# ALB target events
-# ---------------------------------------------------------------------------
 
 _PAGE_STYLE = """
     :root { color-scheme: light dark; }
@@ -380,15 +319,6 @@ def _html_response(body, status=200):
 
 
 def _derive_service_state(name, info):
-    """Best-effort status label for one service on the index page: "asleep"
-    (desired==0), "running" (desired>=1 and the app's own target group has a
-    healthy target), or "warming" (desired>=1, not yet healthy).
-
-    Never raises -- this is a read-only fleet overview, so one service's
-    missing/misnamed target group must not take the whole page down. If the
-    TG lookup or health check fails, degrade to a counts-only guess (running
-    tasks present -> "running", otherwise "warming") rather than erroring.
-    """
     desired = info["desired"]
     running = info["running"]
     if desired == 0:
@@ -417,11 +347,6 @@ def _index_response():
             esc_name = html.escape(name)
             url = f"https://{esc_name}.{esc_domain}/"
             wake_url = f"?svc={esc_name}"
-            # A not-ready app (asleep or still warming) has no healthy
-            # target behind its own URL yet -- neither the name nor the
-            # action link may point there, or clicking it just lands the
-            # visitor on a raw ALB 503. Both point at the wake/poll page
-            # instead until the service is actually "running".
             if state == "running":
                 name_link = url
                 action = f'<a href="{url}">open</a>'
@@ -486,15 +411,6 @@ Usually ready in about a minute.</p>
 
 
 def _wake_response(svc):
-    """?svc=<name> on the wake host: start the service if needed, then poll
-    until it's actually healthy before ever sending the visitor to the app's
-    own URL. A cold app can take ~60-90s to become healthy, so a one-shot
-    redirect after a fixed delay used to land the visitor on a raw ALB 503
-    with no further refresh. Instead: not healthy yet -> meta-refresh back to
-    this SAME ?svc=<name> endpoint (keeps polling the wake host, never the
-    app host) until _target_group_healthy flips true, then a near-immediate
-    hand-off to the real app URL. No raw 503 is ever shown from this page.
-    """
     services = _list_cluster_services()
     if svc not in services:
         body = f"""
@@ -519,27 +435,14 @@ def _wake_response(svc):
         url = f"https://{svc}.{APP_DOMAIN}/"
         return _warming_page(svc, url, refresh_seconds=1, healthy=True)
 
-    # Not healthy yet: refresh back to the wake endpoint itself (not the app
-    # URL) so the browser keeps polling wake.<domain> until the app is truly
-    # ready, then gets handed off.
     poll_url = f"?svc={svc}"
     return _warming_page(svc, poll_url, refresh_seconds=6, healthy=False)
 
 
 def _handle_wake_host(event):
-    """https://wake.<child_zone>/ -- unchanged fleet index / ?svc= start
-    endpoint. START-ONLY by construction: this is the single enforcement
-    point that rejects any attempt to express a stop over HTTP.
-    """
     query = event.get("queryStringParameters") or {}
     print(json.dumps({"event_type": "alb_wake_host", "path": event.get("path"), "query": query}))
 
-    # Single enforcement point: this endpoint is START-ONLY. Any query
-    # parameter other than the sanctioned "svc" (in particular an "action"
-    # param, which would let someone try to puppet the same stop/start-all
-    # verbs the scheduler uses) is rejected outright rather than inspected
-    # for intent -- stopping happens via the nightly schedule or `make stop`,
-    # never over HTTP.
     if "action" in query:
         return _html_response(
             "400 Bad Request: this endpoint only starts services. "
@@ -588,17 +491,8 @@ def _handle_alb_event(event):
     if host == WAKE_HOST:
         return _handle_wake_host(event)
 
-    # Shouldn't happen in practice: the ALB only routes wake.<domain> to this
-    # Lambda's target group. Any other host hits the
-    # listener's own default 404 fixed-response before ever reaching here.
-    # Defensive fallback rather than trusting Host blindly.
     print(json.dumps({"warning": "unrecognized host reached the scaler Lambda", "host": host}))
     return _html_response("404 Not Found", status=404)
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 
 def lambda_handler(event, context):

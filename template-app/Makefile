@@ -2,9 +2,6 @@
 # no ::=, no 4.x-only functions. Each recipe line is its own shell invocation;
 # multi-step checks use a single line with backslash continuations so state
 # (variables, exit-on-failure) carries across the steps of that check.
-#
-# `make preflight` mirrors the CI gates in .github/workflows/build-scan-push.yml
-# and terraform-plan-apply.yml exactly, so a clean local run means CI is clean too.
 
 MANIFEST := app-manifest.yaml
 SCHEMA   := app-manifest.schema.json
@@ -16,10 +13,6 @@ REPO_URL := https://github.com/rpuffe/flightdeck
 
 preflight: check-tools validate-manifest build-image health-check scan
 	@echo "preflight clean — push to main to deploy"
-
-# ---------------------------------------------------------------------------
-# 1. Tool check
-# ---------------------------------------------------------------------------
 
 check-tools:
 	@command -v docker >/dev/null 2>&1 || { echo "docker not found — install Docker Desktop → see docs/contract.md"; exit 1; }
@@ -33,10 +26,6 @@ check-tools:
 	else \
 	  echo "note: no .flightdeck-version (pre-v0.5.0 contract) — run make upgrade to refresh"; \
 	fi
-
-# ---------------------------------------------------------------------------
-# 2. Manifest validation (mirrors app-manifest.schema.json)
-# ---------------------------------------------------------------------------
 
 validate-manifest:
 	@test -f $(MANIFEST) || { echo "$(MANIFEST) not found at repo root → see docs/contract.md"; exit 1; }
@@ -215,17 +204,9 @@ validate-manifest:
 	fi
 	@echo "==> manifest OK"
 
-# ---------------------------------------------------------------------------
-# 3. Build (same --platform as the contract requires of every app)
-# ---------------------------------------------------------------------------
-
 build-image:
 	@echo "==> building image"
 	@docker build --platform linux/amd64 -t $(IMAGE) . || { echo "docker build failed → see docs/dockerfile.md"; exit 1; }
-
-# ---------------------------------------------------------------------------
-# 4. Run + healthcheck (30s budget, 2s poll — same contract CI/the platform enforce)
-# ---------------------------------------------------------------------------
 
 health-check:
 	@port=$$(yq '.port' $(MANIFEST)); \
@@ -257,11 +238,6 @@ health-check:
 	fi; \
 	echo "==> healthcheck OK ($$code)"
 
-# ---------------------------------------------------------------------------
-# 5. Scan (optional locally; exact CI flags — see build-scan-push.yml and
-#    terraform-plan-apply.yml)
-# ---------------------------------------------------------------------------
-
 scan:
 	@if ! command -v trivy >/dev/null 2>&1; then \
 	  echo "install trivy to run the same scan gates as CI: brew install trivy (skipping scan steps)"; \
@@ -277,10 +253,6 @@ scan:
 	  echo "trivy config scan found HIGH/CRITICAL findings → see docs/pipeline.md"; \
 	  exit 1; \
 	}
-
-# ---------------------------------------------------------------------------
-# Manual poking
-# ---------------------------------------------------------------------------
 
 run: build-image
 	@port=$$(yq '.port' $(MANIFEST)); \
@@ -303,9 +275,7 @@ test:
 	  echo "no test.sh found for this app — create test.sh at the repo root with your test command → see docs/example.md"; \
 	fi
 
-# ---------------------------------------------------------------------------
-# 6. Upgrade — refresh platform-owned files to a flightdeck release
-# ---------------------------------------------------------------------------
+# Upgrade: refresh platform-owned files to a flightdeck release
 #
 # make upgrade            — upgrades to the latest published vX.Y.Z tag
 # make upgrade TAG=v0.4.0 — upgrades (or downgrades) to a specific tag

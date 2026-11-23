@@ -54,8 +54,6 @@ jobs:
           image-ref: app:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: "1"
-          # Unfixable vulns would block builds with no available remediation —
-          # gate only on issues a fix could actually resolve (spec §5b threshold).
           ignore-unfixed: true
 
       - name: Configure AWS credentials
@@ -71,12 +69,7 @@ jobs:
       - name: Tag and push
         id: push
         run: |
-          # ECR repo tags are IMMUTABLE (bootstrap platform.tf) — one tag per
-          # commit SHA, never reused, so a re-push of the same commit can't
-          # silently overwrite a previously scanned image.
           registry="${{ steps.ecr-login.outputs.registry }}"
-          # Dev and prod use separate repositories so high-frequency dev
-          # pushes can never expire the image a sleeping prod service needs.
           repo="flightdeck/${{ steps.manifest.outputs.name }}-dev"
           image="$registry/$repo:${{ github.sha }}"
           if aws ecr describe-images --repository-name "$repo" --image-ids imageTag="${{ github.sha }}" >/dev/null 2>&1; then
