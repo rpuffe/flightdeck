@@ -36,6 +36,13 @@ via Terraform, reusable GitHub Actions, and an `app-manifest.yaml` contract.
 | Rule | Enforced by |
 |---|---|
 | A regression check must fail on the commit that had the mistake | `make prove-checks` over `checks/regressions/*.toml` (platform-ci) |
+| modules/fargate-service never declares IAM policies; bootstrap owns them | `tests/test_deploy_role_coverage.py` |
+| Every module resource type has its deploy-role actions granted in `bootstrap/oidc.tf` | `DEPLOY_ROLE_ACTIONS` in `tests/test_deploy_role_coverage.py` |
+| Stateful deploy settings (100/0, AZ rebalancing off) move together | `local.deployment` in the module + `make test-terraform` |
+| Manifest rules agree across schema, Makefile, module, and bootstrap; every schema field reaches the module | `tests/test_manifest_rules.py` |
+| Python text I/O names its encoding; subprocess runs Python via `sys.executable` | `make lint` |
+| No build artifacts in the tree; every `trivy:ignore` has a reason, sits on a resource, and is listed in `checks/trivy-ignores.txt` | `make lint` |
+| Wake reaches a healthy app, the public wake endpoint never stops anything, action status is honest | `make verify-model` (`checks/scaler_model.py`); see `.claude/skills/scaler-model/` |
 
 Adding a check for a past mistake: add `checks/regressions/<name>.toml` with
 `mistake`, `check` (argv), `bad_commit`, `expect` (a regex the failure output must match), and either `files` (copied from `bad_commit`) or `patch` (replays the mistake on today's code), then run
