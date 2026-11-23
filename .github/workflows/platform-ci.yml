@@ -67,6 +67,9 @@ jobs:
       - name: Test fleet scaler
         run: make test
 
+      - name: Model-check the fleet scaler
+        run: make verify-model
+
       - name: Prove each check catches its past mistake
         run: make prove-checks
 
