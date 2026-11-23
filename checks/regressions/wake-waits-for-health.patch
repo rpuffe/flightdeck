@@ -1,0 +1,14 @@
+diff --git a/bootstrap/lambda/scaler.py b/bootstrap/lambda/scaler.py
+index 66a2e34..bd7da95 100644
+--- a/bootstrap/lambda/scaler.py
++++ b/bootstrap/lambda/scaler.py
+@@ -522,8 +522,7 @@ def _wake_response(svc):
+     # Not healthy yet: refresh back to the wake endpoint itself (not the app
+     # URL) so the browser keeps polling wake.<domain> until the app is truly
+     # ready, then gets handed off.
+-    poll_url = f"?svc={svc}"
+-    return _warming_page(svc, poll_url, refresh_seconds=6, healthy=False)
++    return _warming_page(svc, f"https://{svc}.{APP_DOMAIN}/", refresh_seconds=20, healthy=False)
+ 
+ 
+ def _handle_wake_host(event):

@@ -2,3 +2,4 @@ mistake = "the alerts: field added log metric filters but the deploy role had no
 check = ["python3", "-m", "unittest", "tests.test_platform_regressions.StudioDeployRegressionTests.test_deploy_role_can_manage_log_metric_filters"]
 bad_commit = "9a1306a^"
 files = ["bootstrap/oidc.tf"]
+expect = "logs:PutMetricFilter.. not found"
