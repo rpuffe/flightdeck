@@ -24,7 +24,7 @@ HELLO_BACKEND_FLAGS = -backend-config="bucket=$(STATE_BUCKET)" \
 CLUSTER := flightdeck
 APP_DOMAIN := fd.robertpuffe.com
 
-.PHONY: fmt validate test plan-bootstrap bootstrap destroy-bootstrap \
+.PHONY: fmt validate test test-terraform plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
         new-app check-release prove-checks prepare-release secret-set secret-check secret-rotate secret-delete
@@ -132,6 +132,11 @@ validate:
 
 test:
 	python3 -m unittest discover -s tests -v
+
+# Plan-time behavior tests; mock_provider means no AWS access (CI sets fake creds).
+test-terraform:
+	$(TF) -chdir=modules/fargate-service init -input=false -backend=false > /dev/null
+	$(TF) -chdir=modules/fargate-service test
 
 prove-checks:
 	python3 scripts/prove_checks.py
