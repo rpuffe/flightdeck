@@ -1,0 +1,13 @@
+diff --git a/modules/fargate-service/main.tf b/modules/fargate-service/main.tf
+index 9bfabd2..2b780e6 100644
+--- a/modules/fargate-service/main.tf
++++ b/modules/fargate-service/main.tf
+@@ -20,7 +20,7 @@ locals {
+   deployment = {
+     maximum_percent         = local.stateful ? 100 : 200
+     minimum_healthy_percent = local.stateful ? 0 : 100
+-    az_rebalancing          = local.stateful ? "DISABLED" : null
++    az_rebalancing          = null
+   }
+ 
+   container_secrets = [

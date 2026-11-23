@@ -1,0 +1,5 @@
+mistake = "the module gained a log metric filter without the deploy role being granted logs:PutMetricFilter, so the first real apply failed"
+check = ["python3", "-m", "unittest", "tests.test_deploy_role_coverage.DeployRoleCoverageTests.test_deploy_role_grants_every_action_the_module_needs"]
+bad_commit = "9a1306a^"
+files = ["bootstrap/oidc.tf"]
+expect = "aws_cloudwatch_log_metric_filter \\(alerts.tf\\) needs logs:PutMetricFilter, which no deploy_"
