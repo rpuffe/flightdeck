@@ -1,0 +1,5 @@
+mistake = "the wake page redirected to the app URL on a fixed 20s timer, so a visitor could land on the ALB 503 before the cold start finished"
+check = ["python3", "checks/scaler_model.py", "--property", "wake-liveness"]
+bad_commit = "2531b96^"
+files = ["bootstrap/lambda/scaler.py"]
+expect = "FAIL wake-liveness\\n.*left on a dead end at https://app\\."

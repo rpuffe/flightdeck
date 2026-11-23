@@ -1,0 +1,5 @@
+mistake = "the scaler returned status ok when a service failed to scale, hiding the failure from make stop and the alarm"
+check = ["python3", "checks/scaler_model.py", "--property", "action-status-honest"]
+bad_commit = "61381fc^"
+files = ["bootstrap/lambda/scaler.py"]
+expect = "FAIL action-status-honest\\n.*returned status ok but \\['ghost'\\]"

@@ -1,0 +1,14 @@
+# Used only by `make lint` (scripts/lint_repo.py ruff). Deliberately minimal.
+# Ruff misses Path.read_text()/write_text() on inferred paths, so
+# scripts/lint_repo.py encoding covers those.
+[lint]
+preview = true
+explicit-preview-rules = true
+select = [
+  "PLW1514", # open()/tempfile without encoding= (PR #72, 88085d7)
+]
+
+[lint.per-file-ignores]
+# Pre-existing; this file is owned by another change. Drop this entry once it
+# passes encoding="utf-8" to tempfile.NamedTemporaryFile.
+"tests/test_platform_regressions.py" = ["PLW1514"]

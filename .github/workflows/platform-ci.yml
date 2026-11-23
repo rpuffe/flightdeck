@@ -67,6 +67,15 @@ jobs:
       - name: Test fleet scaler
         run: make test
 
+      - name: Test Terraform module behavior
+        run: make test-terraform
+
+      - name: Lint
+        run: make lint
+
+      - name: Model-check the fleet scaler
+        run: make verify-model
+
       - name: Prove each check catches its past mistake
         run: make prove-checks
 

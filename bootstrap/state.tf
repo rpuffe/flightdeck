@@ -22,7 +22,7 @@ resource "aws_s3_bucket_versioning" "state" {
 # SSE-S3 is deliberate for this low-cost personal platform; a customer-managed
 # KMS key would add cost and key-policy/recovery lifecycle without protecting
 # against the trusted account administrators already able to read this state.
-#trivy:ignore:AVD-AWS-0132
+#trivy:ignore:AVD-AWS-0132 -- SSE-S3 is deliberate, see comment above
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = aws_s3_bucket.state.id
 

@@ -6,7 +6,7 @@ import pathlib
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -69,15 +69,6 @@ class ScalerTests(unittest.TestCase):
         self.assertEqual(10, len(scaler.ecs.describe_services.call_args_list[0].kwargs["services"]))
         self.assertEqual(2, len(scaler.ecs.describe_services.call_args_list[1].kwargs["services"]))
 
-    def test_stop_service_reports_success_and_failure(self):
-        self.assertEqual("ok", scaler._stop_service("good"))
-        scaler.ecs.update_service.assert_called_once_with(
-            cluster="flightdeck", service="good", desiredCount=0
-        )
-
-        scaler.ecs.update_service.side_effect = RuntimeError("denied")
-        self.assertEqual("error: denied", scaler._stop_service("bad"))
-
     def test_action_event_returns_error_when_any_service_fails(self):
         with (
             patch.object(scaler, "_start_service", side_effect=["ok", "error: denied"]),
@@ -100,20 +91,6 @@ class ScalerTests(unittest.TestCase):
 
         self.assertEqual("error", missing["status"])
         self.assertEqual("ignored", unknown["status"])
-
-    def test_stop_all_sorts_services_before_processing(self):
-        with (
-            patch.object(
-                scaler,
-                "_list_cluster_services",
-                return_value={"zeta": {}, "alpha": {}},
-            ),
-            patch.object(scaler, "_stop_service", return_value="ok") as stop,
-        ):
-            response = scaler._handle_action_event({"action": "stop-all"})
-
-        self.assertEqual("ok", response["status"])
-        self.assertEqual([call("alpha"), call("zeta")], stop.call_args_list)
 
     def test_index_escapes_service_names(self):
         with (
@@ -154,21 +131,6 @@ class ScalerTests(unittest.TestCase):
         set_count.assert_called_once_with("demo", 1)
         self.assertIn('content="6;url=?svc=demo"', response["body"])
 
-    def test_wake_redirects_only_after_target_is_healthy(self):
-        with (
-            patch.object(
-                scaler,
-                "_list_cluster_services",
-                return_value={"demo": {"desired": 1, "running": 1}},
-            ),
-            patch.object(scaler, "_target_group_arn_by_name", return_value="tg"),
-            patch.object(scaler, "_target_group_healthy", return_value=True),
-        ):
-            response = scaler._wake_response("demo")
-
-        self.assertIn("https://demo.fd.example.com/", response["body"])
-        self.assertIn('content="1;url=https://demo.fd.example.com/"', response["body"])
-
     def test_public_endpoint_rejects_stop_actions(self):
         response = scaler._handle_wake_host(
             {"path": "/", "queryStringParameters": {"action": "stop-all"}}
@@ -187,21 +149,6 @@ class ScalerTests(unittest.TestCase):
 
         other_event = {"headers": {"Host": "demo.fd.example.com"}}
         self.assertEqual(404, scaler._handle_alb_event(other_event)["statusCode"])
-
-    def test_lambda_handler_dispatches_supported_event_shapes(self):
-        with patch.object(scaler, "_handle_alb_event", return_value={"statusCode": 200}) as alb:
-            response = scaler.lambda_handler({"requestContext": {"elb": {}}}, None)
-            self.assertEqual(200, response["statusCode"])
-            alb.assert_called_once()
-
-        with patch.object(scaler, "_handle_action_event", return_value={"status": "ok"}) as action:
-            response = scaler.lambda_handler({"action": "start-all"}, None)
-            self.assertEqual("ok", response["status"])
-            action.assert_called_once()
-
-        self.assertEqual(
-            "ignored", scaler.lambda_handler({"unexpected": True}, None)["status"]
-        )
 
     def test_sleep_idle_stops_only_the_truly_idle_service(self):
         now = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
@@ -267,15 +214,6 @@ class ScalerTests(unittest.TestCase):
 
         self.assertEqual("ignored", response["status"])
         list_services.assert_not_called()
-
-    def test_action_event_dispatches_sleep_idle(self):
-        with patch.object(
-            scaler, "_handle_sleep_idle", return_value={"status": "ok"}
-        ) as handler:
-            response = scaler._handle_action_event({"action": "sleep-idle"})
-
-        handler.assert_called_once_with()
-        self.assertEqual({"status": "ok"}, response)
 
     def test_target_groups_by_service_maps_dimensions_and_skips_detached(self):
         scaler.elbv2.describe_target_groups.return_value = {

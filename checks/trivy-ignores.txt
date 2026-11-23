@@ -1,0 +1,8 @@
+# Every `trivy:ignore:<ID>` comment in a *.tf file, as `<path> <ID>`.
+# `make lint` fails when a comment is missing here or an entry has no comment,
+# so a new suppression always appears in the diff of this file.
+bootstrap/edge.tf AVD-AWS-0053
+bootstrap/platform.tf aws-0095
+bootstrap/state.tf AVD-AWS-0132
+modules/fargate-service/main.tf aws-0104
+modules/fargate-service/storage.tf AVD-AWS-0132
