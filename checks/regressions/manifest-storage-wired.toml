@@ -1,0 +1,4 @@
+mistake = "the v0.4.0 storage manifest field was in the schema and module but template-app/main.tf never passed it to the module"
+check = ["python3", "-m", "unittest", "tests.test_manifest_rules.ManifestRuleSyncTests.test_every_schema_property_is_wired_to_a_module_variable"]
+bad_commit = "9c0d23f^"
+files = ["template-app/main.tf"]
