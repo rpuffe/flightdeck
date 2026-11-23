@@ -2,3 +2,4 @@ mistake = "release_consistency.py read and wrote files with the platform default
 check = ["python3", "-m", "unittest", "tests.test_release_consistency.ReleaseConsistencyTests.test_set_preserves_non_ascii_utf8_bytes_outside_tag_replacements"]
 bad_commit = "88085d7^"
 files = ["scripts/release_consistency.py"]
+expect = "'ascii' codec can't decode"
