@@ -1,0 +1,12 @@
+diff --git a/template-app/main.tf b/template-app/main.tf
+index 6e35d19..65f6ab3 100644
+--- a/template-app/main.tf
++++ b/template-app/main.tf
+@@ -76,7 +76,6 @@ module "app" {
+   memory           = local.manifest.memory
+   env              = try(local.manifest.env, {})
+   secrets          = try(local.manifest.secrets, [])
+-  storage          = try(local.manifest.storage, "")
+   auth             = try(local.manifest.auth, "")
+   alerts           = try(local.manifest.alerts, [])
+   email_from       = try(local.manifest.email.from, "")

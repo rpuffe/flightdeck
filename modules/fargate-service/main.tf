@@ -12,6 +12,17 @@ data "aws_caller_identity" "current" {}
 locals {
   svc_name = var.environment == "prod" ? var.name : "${var.name}-${var.environment}"
 
+  # Every deploy setting that depends on "this service holds state" derives
+  # from this one flag via one object, so a new coupled setting cannot be
+  # gated on a different condition than its siblings. 100/0 with rebalancing
+  # left on is rejected by ECS (see aws_ecs_service.app).
+  stateful = var.storage != ""
+  deployment = {
+    maximum_percent         = local.stateful ? 100 : 200
+    minimum_healthy_percent = local.stateful ? 0 : 100
+    az_rebalancing          = local.stateful ? "DISABLED" : null
+  }
+
   container_secrets = [
     for name in sort(var.secrets) : {
       name      = name
@@ -177,7 +188,7 @@ resource "aws_vpc_security_group_ingress_rule" "service" {
 # internet gateway, and AWS-0104 fires on the 0.0.0.0/0 CIDR regardless of
 # port scoping. Compensating controls: ALB-only ingress, permissionless task
 # role. Egress lockdown (VPC endpoints + explicit CIDRs) is roadmap work.
-#trivy:ignore:aws-0104
+#trivy:ignore:aws-0104 -- tasks need internet egress for ECR and logs, see comment above
 resource "aws_vpc_security_group_egress_rule" "service" {
   security_group_id = aws_security_group.service.id
   description       = "All outbound"
@@ -260,8 +271,8 @@ resource "aws_ecs_service" "app" {
   # Costs ~a minute of deploy downtime; correct for desired_count = 1 state.
   # Stateless services keep the ECS defaults (200/100) — zero-downtime
   # rolling deploys and a byte-identical plan.
-  deployment_maximum_percent         = var.storage != "" ? 100 : 200
-  deployment_minimum_healthy_percent = var.storage != "" ? 0 : 100
+  deployment_maximum_percent         = local.deployment.maximum_percent
+  deployment_minimum_healthy_percent = local.deployment.minimum_healthy_percent
 
   # ECS enables Availability Zone rebalancing by default, but rejects service
   # updates whose maximum deployment percentage is <= 100 while rebalancing
@@ -269,7 +280,7 @@ resource "aws_ecs_service" "app" {
   # deployment, so disable rebalancing for that path. Leave stateless services
   # unset: updates retain the service's existing setting, while new services
   # use the ECS create default. Their 200/100 deploy works with either value.
-  availability_zone_rebalancing = var.storage != "" ? "DISABLED" : null
+  availability_zone_rebalancing = local.deployment.az_rebalancing
 
   # Public subnets with a per-task public IPv4 instead of private subnets
   # behind a NAT instance (spec §10, 2026-11-01): egress goes straight out the

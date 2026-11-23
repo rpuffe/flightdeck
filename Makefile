@@ -24,7 +24,7 @@ HELLO_BACKEND_FLAGS = -backend-config="bucket=$(STATE_BUCKET)" \
 CLUSTER := flightdeck
 APP_DOMAIN := fd.robertpuffe.com
 
-.PHONY: fmt validate test plan-bootstrap bootstrap destroy-bootstrap \
+.PHONY: fmt validate test test-terraform lint plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
         new-app check-release prove-checks verify-model prepare-release secret-set secret-check secret-rotate secret-delete
@@ -133,8 +133,18 @@ validate:
 test:
 	python3 -m unittest discover -s tests -v
 
+# Plan-time behavior tests; mock_provider means no AWS access (CI sets fake creds).
+test-terraform:
+	$(TF) -chdir=modules/fargate-service init -input=false -backend=false > /dev/null
+	$(TF) -chdir=modules/fargate-service test
+
 prove-checks:
 	python3 scripts/prove_checks.py
+
+# ruff (pinned in the script), bare python3 argv, tracked build artifacts,
+# trivy:ignore reasons + allowlist. Needs uvx or pipx for ruff.
+lint:
+	python3 scripts/lint_repo.py
 
 # Explore every interleaving of the scaler's actors against a fake AWS
 # (checks/scaler_model.py; .claude/skills/scaler-model/SKILL.md).
