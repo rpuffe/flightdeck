@@ -1,0 +1,13 @@
+diff --git a/bootstrap/lambda/scaler.py b/bootstrap/lambda/scaler.py
+index 66a2e34..a9b0fc9 100644
+--- a/bootstrap/lambda/scaler.py
++++ b/bootstrap/lambda/scaler.py
+@@ -300,7 +300,7 @@ def _handle_action_event(event):
+             return {"status": "error", "message": f"action={action} requires a services list"}
+         worker = _stop_service if action == "stop" else _start_service
+         results = {name: worker(name) for name in services}
+-        status = "ok" if all(result == "ok" for result in results.values()) else "error"
++        status = "ok"
+         response = {"status": status, "action": action, "results": results}
+         print(json.dumps({"event_type": "action_result", **response}))
+         return response
