@@ -27,7 +27,7 @@ APP_DOMAIN := fd.robertpuffe.com
 .PHONY: fmt validate test test-terraform lint plan-bootstrap bootstrap destroy-bootstrap \
         plan-hello deploy-hello destroy-hello \
         ps stop start stop-all start-all \
-        new-app check-release prove-checks prepare-release secret-set secret-check secret-rotate secret-delete
+        new-app check-release prove-checks verify-model prepare-release secret-set secret-check secret-rotate secret-delete
 
 # --- Service operations ------------------------------------------------------
 # Scale operations are deliberate drift: terraform state keeps desired_count=1,
@@ -145,6 +145,11 @@ prove-checks:
 # trivy:ignore reasons + allowlist. Needs uvx or pipx for ruff.
 lint:
 	python3 scripts/lint_repo.py
+
+# Explore every interleaving of the scaler's actors against a fake AWS
+# (checks/scaler_model.py; .claude/skills/scaler-model/SKILL.md).
+verify-model:
+	python3 checks/scaler_model.py
 
 check-release:
 	python3 scripts/release_consistency.py $(if $(TAG),--tag $(TAG),)

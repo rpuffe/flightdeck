@@ -1,0 +1,5 @@
+mistake = "stop flipped the app's listener rule to the scaler and flipped back only once the app target group was healthy, but ALB never health-checks a detached target group, so a woken app stayed behind the warming page forever"
+check = ["python3", "checks/scaler_model.py", "--property", "wake-liveness"]
+bad_commit = "943876b"
+files = ["bootstrap/lambda/scaler.py", "bootstrap/scaler.tf"]
+expect = "FAIL wake-liveness\\n.*can never reach it"
