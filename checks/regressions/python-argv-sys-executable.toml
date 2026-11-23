@@ -2,3 +2,4 @@ mistake = "release tests spawned the script with a bare python3 instead of sys.e
 check = ["python3", "scripts/lint_repo.py", "python-argv"]
 bad_commit = "cb5a6cd^"
 files = ["tests/test_release_consistency.py"]
+expect = "test_release_consistency.py:\\d+: subprocess argv starts with .python3."

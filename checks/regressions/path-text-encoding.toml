@@ -2,3 +2,4 @@ mistake = "release_consistency.py called Path.read_text() without encoding=, whi
 check = ["python3", "scripts/lint_repo.py", "encoding"]
 bad_commit = "88085d7^"
 files = ["scripts/release_consistency.py"]
+expect = "release_consistency.py:\\d+: .read_text\\(\\) without encoding"
